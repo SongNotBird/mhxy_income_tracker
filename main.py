@@ -594,6 +594,10 @@ class IncomeTrackerApp:
         self.summary_tab_frames: Dict[str, ttk.Frame] = {}
         self.summary_tab_buttons: Dict[str, ttk.Button] = {}
         self.current_summary_tab = "today"
+        self.main_frame: Optional[ttk.Frame] = None
+        self.summary_frame: Optional[ttk.Frame] = None
+        self.summary_body_frame: Optional[ttk.Frame] = None
+        self.quick_entry_panel: Optional[ttk.Labelframe] = None
 
         self._configure_window()
         self._build_ui()
@@ -904,6 +908,7 @@ class IncomeTrackerApp:
         main.columnconfigure(0, weight=7)
         main.columnconfigure(1, weight=5)
         main.rowconfigure(0, weight=1)
+        self.main_frame = main
 
         self._build_catalog_panel(main)
         self._build_quick_entry_panel(main)
@@ -912,6 +917,7 @@ class IncomeTrackerApp:
         summary.grid(row=3, column=0, sticky="nsew")
         summary.columnconfigure(0, weight=1)
         summary.rowconfigure(2, weight=1)
+        self.summary_frame = summary
 
         summary_head = ttk.Frame(summary, style="App.TFrame")
         summary_head.grid(row=0, column=0, sticky="ew", pady=(0, 8))
@@ -958,6 +964,7 @@ class IncomeTrackerApp:
         summary_body.grid(row=2, column=0, sticky="nsew")
         summary_body.columnconfigure(0, weight=1)
         summary_body.rowconfigure(0, weight=1)
+        self.summary_body_frame = summary_body
 
         today_tab = ttk.Frame(summary_body, padding=14, style="Surface.TFrame")
         total_tab = ttk.Frame(summary_body, padding=14, style="Surface.TFrame")
@@ -1066,6 +1073,7 @@ class IncomeTrackerApp:
         panel = ttk.Labelframe(parent, text="每日录入", padding=12, style="Panel.TLabelframe")
         panel.grid(row=0, column=1, sticky="nsew")
         panel.columnconfigure(0, weight=1)
+        self.quick_entry_panel = panel
 
         hero = ttk.Frame(panel, style="Hero.TFrame")
         hero.grid(row=0, column=0, sticky="ew")
@@ -1093,35 +1101,41 @@ class IncomeTrackerApp:
         info.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         info.columnconfigure(1, weight=1)
         info.columnconfigure(3, weight=1)
-        info.columnconfigure(5, weight=1)
         ttk.Label(info, text="标签", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Label(info, textvariable=self.selected_tag_var, style="BigValue.TLabel").grid(
+        ttk.Label(info, textvariable=self.selected_tag_var, style="CardTitle.TLabel").grid(
             row=0, column=1, sticky="w", padx=(8, 12), pady=4
         )
         ttk.Label(info, text="今日数量", style="CardSubtle.TLabel").grid(row=0, column=2, sticky="w", pady=4)
-        ttk.Label(info, textvariable=self.selected_today_qty_var, style="BigValue.TLabel").grid(
-            row=0, column=3, sticky="w", padx=(8, 12), pady=4
+        ttk.Label(info, textvariable=self.selected_today_qty_var, style="CardTitle.TLabel").grid(
+            row=0, column=3, sticky="w", padx=(8, 0), pady=4
         )
-        ttk.Label(info, text="今日收益", style="CardSubtle.TLabel").grid(row=0, column=4, sticky="w", pady=4)
-        ttk.Label(info, textvariable=self.selected_today_coin_var, style="BigValue.TLabel").grid(
-            row=0, column=5, sticky="w", padx=(8, 0), pady=4
+        ttk.Label(info, text="今日收益", style="CardSubtle.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
+        ttk.Label(info, textvariable=self.selected_today_coin_var, style="CardTitle.TLabel").grid(
+            row=1, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(2, 0)
         )
 
         qty_frame = ttk.Frame(panel, style="Card.TFrame")
         qty_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         qty_frame.columnconfigure(1, weight=1)
         qty_frame.columnconfigure(3, weight=1)
-        ttk.Label(qty_frame, text="本次数量", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
+        ttk.Label(qty_frame, text="本次数量", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.quantity_entry = ttk.Entry(qty_frame, textvariable=self.quantity_var)
         self.quantity_entry.grid(row=0, column=1, sticky="ew", padx=(10, 12))
         self.quantity_entry.bind("<Return>", lambda _event: self.save_record())
+        ttk.Button(
+            qty_frame,
+            text="保存",
+            command=self.save_record,
+            style="Primary.TButton",
+        ).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(qty_frame, text="清空", command=self.clear_quantity).grid(
+            row=0, column=3, sticky="e"
+        )
         ttk.Label(qty_frame, text="本次预计收益", style="CardTitle.TLabel").grid(
-            row=0, column=2, sticky="w"
+            row=1, column=0, sticky="w", pady=(8, 0)
         )
         estimate_card = ttk.Frame(qty_frame, style="Estimate.TFrame")
-        estimate_card.grid(row=0, column=3, sticky="ew", padx=(10, 0))
+        estimate_card.grid(row=1, column=1, columnspan=3, sticky="ew", pady=(8, 0))
         estimate_card.columnconfigure(0, weight=1)
         ttk.Label(estimate_card, text="自动计算", style="EstimateLabel.TLabel").grid(
             row=0, column=0, sticky="w"
@@ -1131,18 +1145,6 @@ class IncomeTrackerApp:
             textvariable=self.selected_estimated_coin_var,
             style="EstimateValue.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
-
-        action_row = ttk.Frame(qty_frame, style="Card.TFrame")
-        action_row.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
-        ttk.Button(
-            action_row,
-            text="保存本次收获",
-            command=self.save_record,
-            style="Primary.TButton",
-        ).grid(
-            row=0, column=0, padx=(0, 8)
-        )
-        ttk.Button(action_row, text="清空数量", command=self.clear_quantity).grid(row=0, column=1)
 
         tip_row = ttk.Frame(panel, style="Surface.TFrame")
         tip_row.grid(row=3, column=0, sticky="ew", pady=(8, 0))

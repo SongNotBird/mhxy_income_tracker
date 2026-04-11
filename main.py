@@ -469,6 +469,71 @@ class DataStore:
         with file_path.open("w", encoding="utf-8") as file:
             json.dump(payload, file, ensure_ascii=False, indent=2)
 
+    def import_config(self, file_path: Path) -> dict:
+        try:
+            with file_path.open("r", encoding="utf-8") as file:
+                loaded = json.load(file)
+        except OSError as exc:
+            raise ValueError("配置文件读取失败。") from exc
+        except json.JSONDecodeError as exc:
+            raise ValueError("配置文件不是有效的 JSON。") from exc
+
+        raw_items = loaded.get("items", {})
+        if not isinstance(raw_items, dict):
+            raise ValueError("配置文件缺少有效的道具列表。")
+
+        normalized_items: Dict[str, dict] = {}
+        for name, item in raw_items.items():
+            item_name = str(name).strip()
+            if not item_name:
+                continue
+            if isinstance(item, dict):
+                raw_price = item.get("price", 0)
+                tag = str(item.get("tag", "")).strip()
+                updated_at = str(item.get("updated_at", "")).strip()
+            else:
+                raw_price = item
+                tag = ""
+                updated_at = ""
+
+            try:
+                price = int(float(raw_price))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"道具“{item_name}”的单价格式不正确。") from exc
+            if price < 0:
+                raise ValueError(f"道具“{item_name}”的单价不能小于 0。")
+
+            normalized_items[item_name] = {
+                "price": price,
+                "tag": tag,
+                "updated_at": updated_at or current_timestamp(),
+            }
+
+        exchange_rate = loaded.get("exchange_rate", {})
+        if not isinstance(exchange_rate, dict):
+            raise ValueError("配置文件中的汇率格式不正确。")
+
+        try:
+            cash = float(exchange_rate.get("cash", self.data["exchange_rate"]["cash"]))
+            coin = int(float(exchange_rate.get("coin", self.data["exchange_rate"]["coin"])))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("配置文件中的汇率格式不正确。") from exc
+
+        if cash <= 0 or coin <= 0:
+            raise ValueError("配置文件中的汇率必须大于 0。")
+
+        self.data["items"] = normalized_items
+        self.data["exchange_rate"] = {
+            "cash": cash,
+            "coin": coin,
+        }
+        self._save()
+        return {
+            "item_count": len(normalized_items),
+            "cash": cash,
+            "coin": coin,
+        }
+
     def get_available_preset_items(self) -> List[dict]:
         existing_names = set(self.data["items"])
         available: List[dict] = []
@@ -1067,14 +1132,17 @@ class IncomeTrackerApp:
         ).grid(
             row=0, column=4, padx=(0, 8), pady=4
         )
-        ttk.Button(parent, text="导出配置", command=self.export_config).grid(
+        ttk.Button(parent, text="导入配置", command=self.import_config).grid(
             row=0, column=5, padx=(0, 8), pady=4
         )
-        ttk.Button(parent, text="汇率设置", command=self.open_rate_window).grid(
+        ttk.Button(parent, text="导出配置", command=self.export_config).grid(
             row=0, column=6, padx=(0, 8), pady=4
         )
-        ttk.Button(parent, text="导出 CSV", command=self.export_report).grid(
+        ttk.Button(parent, text="汇率设置", command=self.open_rate_window).grid(
             row=0, column=7, pady=4
+        )
+        ttk.Button(parent, text="导出 CSV", command=self.export_report).grid(
+            row=0, column=8, pady=4
         )
 
     def _build_catalog_panel(self, parent: ttk.Frame) -> None:
@@ -1278,11 +1346,14 @@ class IncomeTrackerApp:
         ttk.Button(buttons, text="添加常用道具", command=self.open_preset_window, style="Success.TButton").grid(
             row=0, column=3, padx=8
         )
-        ttk.Button(buttons, text="导出配置", command=self.export_config).grid(
+        ttk.Button(buttons, text="导入配置", command=self.import_config).grid(
             row=0, column=4, padx=8
         )
-        ttk.Button(buttons, text="关闭", command=self._close_manage_window).grid(
+        ttk.Button(buttons, text="导出配置", command=self.export_config).grid(
             row=0, column=5, padx=(8, 0)
+        )
+        ttk.Button(buttons, text="关闭", command=self._close_manage_window).grid(
+            row=0, column=6, padx=(8, 0)
         )
 
         table_frame = ttk.Frame(window, padding=(16, 0, 16, 16), style="App.TFrame")
@@ -2227,6 +2298,39 @@ class IncomeTrackerApp:
 
         self.store.export_config(Path(file_path))
         self.status_var.set(f"已导出配置：{file_path}")
+
+    def import_config(self) -> None:
+        file_path = filedialog.askopenfilename(
+            title="导入道具配置",
+            filetypes=[("JSON 文件", "*.json")],
+        )
+        if not file_path:
+            return
+
+        if not messagebox.askyesno(
+            "确认导入",
+            "导入后会用文件里的道具库和汇率替换当前配置，历史统计记录不会删除。确定继续吗？",
+        ):
+            return
+
+        try:
+            result = self.store.import_config(Path(file_path))
+        except ValueError as error:
+            messagebox.showerror("导入失败", str(error))
+            return
+
+        remaining_item_names = self.store.get_item_names()
+        self.manage_item_var.set("")
+        self.manage_price_var.set("")
+        self.manage_tag_var.set("")
+        self.record_item_var.set(remaining_item_names[0] if remaining_item_names else "")
+        self.quantity_var.set("1")
+        self.refresh_views()
+        self.status_var.set(
+            "已导入配置："
+            f"{result['item_count']} 个道具，"
+            f"比例 {format_number(result['cash'])} 元 = {format_number(result['coin'])} 梦幻币。"
+        )
 
     def _build_total_summary_rows(self, records: List[dict]) -> List[dict]:
         summary: Dict[str, dict] = {}

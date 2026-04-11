@@ -23,30 +23,38 @@ except ModuleNotFoundError as exc:
 
 
 APP_TITLE = "梦幻西游收益统计"
-WINDOW_SIZE = "1450x900"
+DEFAULT_WINDOW_WIDTH = 1320
+DEFAULT_WINDOW_HEIGHT = 830
+MANAGE_WINDOW_WIDTH = 920
+MANAGE_WINDOW_HEIGHT = 640
+PRESET_WINDOW_WIDTH = 760
+PRESET_WINDOW_HEIGHT = 620
 DATA_FILE_ENV = "MHXY_INCOME_TRACKER_DATA_FILE"
 SCHEMA_VERSION = 3
 PRESET_ITEMS = [
-    {"name": "炼妖石", "tag": "召唤兽"},
-    {"name": "金柳露", "tag": "召唤兽"},
-    {"name": "超级金柳露", "tag": "召唤兽"},
-    {"name": "月华露", "tag": "召唤兽"},
-    {"name": "强化石", "tag": "打造"},
-    {"name": "宝石", "tag": "打造"},
-    {"name": "星辉石", "tag": "打造"},
-    {"name": "符石", "tag": "打造"},
-    {"name": "藏宝图", "tag": "日常"},
-    {"name": "高级藏宝图", "tag": "活动"},
-    {"name": "摇钱树苗", "tag": "活动"},
-    {"name": "修炼果", "tag": "日常"},
-    {"name": "九转金丹", "tag": "日常"},
-    {"name": "彩果", "tag": "活动"},
-    {"name": "金刚石", "tag": "五宝"},
-    {"name": "定魂珠", "tag": "五宝"},
-    {"name": "龙鳞", "tag": "五宝"},
-    {"name": "夜光珠", "tag": "五宝"},
-    {"name": "避水珠", "tag": "五宝"},
-    {"name": "五色旗盒", "tag": "杂项"},
+    {"name": "金柳露", "tag": "召唤兽", "note": "抓鬼/副本常见"},
+    {"name": "超级金柳露", "tag": "召唤兽", "note": "活动/积分常见"},
+    {"name": "月华露", "tag": "召唤兽", "note": "商人常收"},
+    {"name": "炼妖石", "tag": "召唤兽", "note": "召唤兽培养"},
+    {"name": "魔兽要诀", "tag": "召唤兽", "note": "副本/挖图常见"},
+    {"name": "高级魔兽要诀", "tag": "召唤兽", "note": "高宝图/活动"},
+    {"name": "强化石", "tag": "打造", "note": "商人常收"},
+    {"name": "宝石", "tag": "打造", "note": "商人常收"},
+    {"name": "星辉石", "tag": "打造", "note": "打造消耗"},
+    {"name": "符石", "tag": "打造", "note": "副本/日常常见"},
+    {"name": "藏宝图", "tag": "日常", "note": "日常流通"},
+    {"name": "高级藏宝图", "tag": "活动", "note": "五宝兑换/挖图"},
+    {"name": "摇钱树苗", "tag": "活动", "note": "消耗量大"},
+    {"name": "修炼果", "tag": "日常", "note": "副本/活动常见"},
+    {"name": "九转金丹", "tag": "日常", "note": "日常奖励"},
+    {"name": "如意丹", "tag": "日常", "note": "商人常收"},
+    {"name": "彩果", "tag": "活动", "note": "商人常收"},
+    {"name": "特赦令牌", "tag": "活动", "note": "副本/五宝兑换"},
+    {"name": "金刚石", "tag": "五宝", "note": "五宝"},
+    {"name": "定魂珠", "tag": "五宝", "note": "五宝"},
+    {"name": "龙鳞", "tag": "五宝", "note": "五宝"},
+    {"name": "夜光珠", "tag": "五宝", "note": "五宝"},
+    {"name": "避水珠", "tag": "五宝", "note": "五宝"},
 ]
 APP_BG = "#efe6d2"
 SURFACE_BG = "#f8f2e5"
@@ -62,7 +70,17 @@ ACCENT_JADE_HOVER = "#407252"
 BORDER_COLOR = "#c8b79b"
 TEXT_COLOR = "#35271a"
 MUTED_TEXT = "#6f6255"
-SELECT_BG = "#dbe8d6"
+SELECT_BG = "#f3e6bc"
+
+
+def clamp_window_size(widget, width: int, height: int) -> tuple[int, int, int, int]:
+    screen_width = widget.winfo_screenwidth()
+    screen_height = widget.winfo_screenheight()
+    final_width = min(width, max(960, screen_width - 80))
+    final_height = min(height, max(680, screen_height - 110))
+    pos_x = max(20, (screen_width - final_width) // 2)
+    pos_y = max(20, (screen_height - final_height) // 2)
+    return final_width, final_height, pos_x, pos_y
 
 
 def get_data_file() -> Path:
@@ -424,29 +442,51 @@ class DataStore:
         self.data["items"][normalized]["updated_at"] = current_timestamp()
         self._save()
 
-    def import_preset_items(self) -> tuple[int, int]:
-        added_count = 0
-        skipped_count = 0
-        timestamp = current_timestamp()
-
+    def get_available_preset_items(self) -> List[dict]:
+        existing_names = set(self.data["items"])
+        available: List[dict] = []
         for preset in PRESET_ITEMS:
             item_name = str(preset.get("name", "")).strip()
-            if not item_name:
+            if not item_name or item_name in existing_names:
                 continue
-            if item_name in self.data["items"]:
-                skipped_count += 1
-                continue
+            available.append(
+                {
+                    "name": item_name,
+                    "tag": str(preset.get("tag", "")).strip(),
+                    "note": str(preset.get("note", "")).strip(),
+                }
+            )
+        return available
 
-            self.data["items"][item_name] = {
-                "price": 0,
-                "tag": str(preset.get("tag", "")).strip(),
-                "updated_at": timestamp,
-            }
-            added_count += 1
+    def add_preset_item(self, item_name: str) -> dict:
+        normalized = item_name.strip()
+        if not normalized:
+            raise ValueError("常用道具名不能为空。")
+        if normalized in self.data["items"]:
+            raise ValueError("这个道具已经在你的道具库里了。")
 
-        if added_count:
-            self._save()
-        return added_count, skipped_count
+        preset = next(
+            (
+                item
+                for item in PRESET_ITEMS
+                if str(item.get("name", "")).strip() == normalized
+            ),
+            None,
+        )
+        if preset is None:
+            raise ValueError("没找到这个常用道具模板。")
+
+        self.data["items"][normalized] = {
+            "price": 0,
+            "tag": str(preset.get("tag", "")).strip(),
+            "updated_at": current_timestamp(),
+        }
+        self._save()
+        return {
+            "name": normalized,
+            "tag": str(preset.get("tag", "")).strip(),
+            "note": str(preset.get("note", "")).strip(),
+        }
 
     def get_exchange_rate(self) -> dict:
         return dict(self.data["exchange_rate"])
@@ -525,6 +565,7 @@ class IncomeTrackerApp:
         self.manage_tag_var = tk.StringVar()
         self.filter_text_var = tk.StringVar()
         self.filter_tag_var = tk.StringVar(value="全部")
+        self.preset_filter_var = tk.StringVar()
         self.cash_ratio_var = tk.StringVar()
         self.coin_ratio_var = tk.StringVar()
         self.selected_item_name_var = tk.StringVar(value="请先从左侧选择道具")
@@ -545,6 +586,8 @@ class IncomeTrackerApp:
         self.latest_records_cache: List[dict] = []
         self.manage_window: Optional[tk.Toplevel] = None
         self.manage_tree: Optional[ttk.Treeview] = None
+        self.preset_window: Optional[tk.Toplevel] = None
+        self.preset_tree: Optional[ttk.Treeview] = None
 
         self._configure_window()
         self._build_ui()
@@ -555,11 +598,15 @@ class IncomeTrackerApp:
         self.quantity_var.trace_add("write", self._on_quantity_changed)
         self.filter_text_var.trace_add("write", self._on_catalog_filter_changed)
         self.filter_tag_var.trace_add("write", self._on_catalog_filter_changed)
+        self.preset_filter_var.trace_add("write", self._on_preset_filter_changed)
 
     def _configure_window(self) -> None:
         self.root.title(APP_TITLE)
-        self.root.geometry(WINDOW_SIZE)
-        self.root.minsize(1280, 780)
+        width, height, pos_x, pos_y = clamp_window_size(
+            self.root, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
+        )
+        self.root.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        self.root.resizable(False, False)
         self.root.configure(bg=APP_BG)
 
         style = ttk.Style()
@@ -708,8 +755,8 @@ class IncomeTrackerApp:
             background="#f4edde",
             foreground=TEXT_COLOR,
             bordercolor=BORDER_COLOR,
-            focusthickness=1,
-            focuscolor=ACCENT_GOLD,
+            focusthickness=0,
+            focuscolor=FIELD_BG,
             padding=(10, 6),
             relief="solid",
         )
@@ -760,6 +807,8 @@ class IncomeTrackerApp:
             foreground=TEXT_COLOR,
             bordercolor=BORDER_COLOR,
             rowheight=30,
+            relief="flat",
+            borderwidth=1,
         )
         style.map(
             "Treeview",
@@ -803,7 +852,7 @@ class IncomeTrackerApp:
         )
         style.map(
             "TNotebook.Tab",
-            background=[("selected", CARD_BG), ("active", "#f3e8ce")],
+            background=[("selected", "#f7edd8"), ("active", "#f0e0be")],
             foreground=[("selected", TEXT_COLOR)],
         )
 
@@ -888,8 +937,8 @@ class IncomeTrackerApp:
         )
         ttk.Button(
             parent,
-            text="导入常用模板",
-            command=self.import_preset_items,
+            text="添加常用道具",
+            command=self.open_preset_window,
             style="Success.TButton",
         ).grid(
             row=0, column=5, padx=(0, 8), pady=4
@@ -912,7 +961,13 @@ class IncomeTrackerApp:
         ).grid(row=0, column=0, sticky="w", pady=(0, 12))
 
         columns = ("item_name", "tag")
-        self.item_tree = ttk.Treeview(panel, columns=columns, show="headings", height=18)
+        self.item_tree = ttk.Treeview(
+            panel,
+            columns=columns,
+            show="headings",
+            height=18,
+            selectmode="browse",
+        )
         headers = {
             "item_name": "道具名",
             "tag": "标签",
@@ -1092,9 +1147,12 @@ class IncomeTrackerApp:
             return
 
         window = tk.Toplevel(self.root)
+        width, height, pos_x, pos_y = clamp_window_size(
+            window, MANAGE_WINDOW_WIDTH, MANAGE_WINDOW_HEIGHT
+        )
         window.title("道具价格管理")
-        window.geometry("860x620")
-        window.minsize(760, 520)
+        window.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        window.resizable(False, False)
         window.configure(bg=APP_BG)
         window.columnconfigure(0, weight=1)
         window.rowconfigure(1, weight=1)
@@ -1130,7 +1188,7 @@ class IncomeTrackerApp:
         buttons.grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
         ttk.Button(buttons, text="新增道具", command=self.add_item, style="Primary.TButton").grid(row=0, column=0, padx=(0, 8))
         ttk.Button(buttons, text="更新价格", command=self.update_item).grid(row=0, column=1, padx=8)
-        ttk.Button(buttons, text="导入常用模板", command=self.import_preset_items, style="Success.TButton").grid(
+        ttk.Button(buttons, text="添加常用道具", command=self.open_preset_window, style="Success.TButton").grid(
             row=0, column=2, padx=8
         )
         ttk.Button(buttons, text="关闭", command=self._close_manage_window).grid(
@@ -1143,7 +1201,12 @@ class IncomeTrackerApp:
         table_frame.rowconfigure(0, weight=1)
 
         columns = ("item_name", "tag", "price", "updated_at")
-        self.manage_tree = ttk.Treeview(table_frame, columns=columns, show="headings")
+        self.manage_tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+        )
         headers = {
             "item_name": "道具名",
             "tag": "标签",
@@ -1174,16 +1237,181 @@ class IncomeTrackerApp:
         self.manage_window = None
         self.manage_tree = None
 
+    def open_preset_window(self) -> None:
+        if not self.store.get_available_preset_items():
+            messagebox.showinfo("提示", "常用道具已经都加进你的道具库了。")
+            return
+
+        if self.preset_window is not None and self.preset_window.winfo_exists():
+            self._refresh_preset_tree()
+            self.preset_window.deiconify()
+            self.preset_window.lift()
+            self.preset_window.focus_force()
+            return
+
+        window = tk.Toplevel(self.root)
+        width, height, pos_x, pos_y = clamp_window_size(
+            window, PRESET_WINDOW_WIDTH, PRESET_WINDOW_HEIGHT
+        )
+        window.title("添加常用道具")
+        window.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        window.resizable(False, False)
+        window.configure(bg=APP_BG)
+        window.columnconfigure(0, weight=1)
+        window.rowconfigure(1, weight=1)
+        window.protocol("WM_DELETE_WINDOW", self._close_preset_window)
+        self.preset_window = window
+        self.preset_filter_var.set("")
+
+        top = ttk.Frame(window, padding=16, style="App.TFrame")
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            top,
+            text="这里只列常见流通道具，而且只显示你还没加入自己道具库的那些。",
+            style="HeaderSub.TLabel",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(top, text="搜索").grid(row=1, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.preset_filter_var).grid(
+            row=1, column=1, sticky="ew", padx=(10, 12)
+        )
+        ttk.Button(top, text="清空", command=lambda: self.preset_filter_var.set("")).grid(
+            row=1, column=2, sticky="e"
+        )
+
+        body = ttk.Frame(window, padding=(16, 0, 16, 16), style="App.TFrame")
+        body.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        columns = ("item_name", "tag", "note")
+        self.preset_tree = ttk.Treeview(
+            body,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+        )
+        headers = {
+            "item_name": "常用道具",
+            "tag": "标签",
+            "note": "常见来源",
+        }
+        widths = {
+            "item_name": 240,
+            "tag": 110,
+            "note": 260,
+        }
+        for column in columns:
+            self.preset_tree.heading(column, text=headers[column])
+            self.preset_tree.column(column, width=widths[column], anchor="center")
+
+        self.preset_tree.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self.preset_tree.yview)
+        self.preset_tree.configure(yscrollcommand=scroll.set)
+        scroll.grid(row=0, column=1, sticky="ns")
+        self.preset_tree.bind("<Double-1>", self._on_preset_tree_double_click)
+
+        action_row = ttk.Frame(window, padding=(16, 0, 16, 16), style="App.TFrame")
+        action_row.grid(row=2, column=0, sticky="ew")
+        ttk.Button(
+            action_row,
+            text="加入道具库",
+            command=self.add_selected_preset_item,
+            style="Primary.TButton",
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(action_row, text="关闭", command=self._close_preset_window).grid(
+            row=0, column=1
+        )
+
+        self._refresh_preset_tree()
+
+    def _close_preset_window(self) -> None:
+        if self.preset_window is not None and self.preset_window.winfo_exists():
+            self.preset_window.destroy()
+        self.preset_window = None
+        self.preset_tree = None
+
+    def _preset_matches_filter(self, preset: dict) -> bool:
+        search_text = self.preset_filter_var.get().strip().lower()
+        if not search_text:
+            return True
+        return any(
+            search_text in str(preset.get(key, "")).lower()
+            for key in ("name", "tag", "note")
+        )
+
+    def _refresh_preset_tree(self) -> None:
+        if self.preset_tree is None:
+            return
+
+        for item_id in self.preset_tree.get_children():
+            self.preset_tree.delete(item_id)
+
+        for preset in self.store.get_available_preset_items():
+            if not self._preset_matches_filter(preset):
+                continue
+            self.preset_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    preset["name"],
+                    preset["tag"] or "-",
+                    preset["note"] or "-",
+                ),
+            )
+
+    def _on_preset_filter_changed(self, *_args) -> None:
+        self._refresh_preset_tree()
+
+    def _on_preset_tree_double_click(self, _event) -> None:
+        self.add_selected_preset_item()
+
+    def add_selected_preset_item(self) -> None:
+        if self.preset_tree is None:
+            return
+
+        selection = self.preset_tree.selection()
+        if not selection:
+            messagebox.showinfo("提示", "请先选中一个常用道具。")
+            return
+
+        values = self.preset_tree.item(selection[0], "values")
+        if not values:
+            return
+
+        item_name = str(values[0]).strip()
+        try:
+            preset = self.store.add_preset_item(item_name)
+        except ValueError as error:
+            messagebox.showerror("操作失败", str(error))
+            return
+
+        self.manage_item_var.set(preset["name"])
+        self.manage_price_var.set("")
+        self.manage_tag_var.set(preset["tag"])
+        self.record_item_var.set(preset["name"])
+        self.refresh_views()
+        self._refresh_preset_tree()
+        self.status_var.set(
+            f"已加入常用道具：{preset['name']}，请再给它补一个单价。"
+        )
+
+        if not self.store.get_available_preset_items():
+            self._close_preset_window()
+
     def _refresh_manage_tree(self) -> None:
         if self.manage_tree is None or not self.manage_tree.winfo_exists():
             return
+        current_item = self.manage_item_var.get().strip()
+        selected_row = None
 
         for item_id in self.manage_tree.get_children():
             self.manage_tree.delete(item_id)
 
         for item in self.store.get_items():
             price_label = "未设置" if item["price"] <= 0 else format_number(item["price"])
-            self.manage_tree.insert(
+            row_id = self.manage_tree.insert(
                 "",
                 tk.END,
                 values=(
@@ -1193,6 +1421,12 @@ class IncomeTrackerApp:
                     format_time_label(item["updated_at"]),
                 ),
             )
+            if item["name"] == current_item:
+                selected_row = row_id
+
+        if selected_row is not None:
+            self.manage_tree.selection_set(selected_row)
+            self.manage_tree.focus(selected_row)
 
     def _on_manage_tree_select(self, _event) -> None:
         if self.manage_tree is None:
@@ -1277,12 +1511,18 @@ class IncomeTrackerApp:
         ).grid(row=0, column=2, padx=8)
         ttk.Button(
             button_row,
-            text="导入常用模板",
+            text="添加常用道具",
             command=self.import_preset_items,
         ).grid(row=0, column=3, padx=(8, 0))
 
         columns = ("item_name", "tag", "price", "updated_at")
-        self.item_tree = ttk.Treeview(panel, columns=columns, show="headings", height=10)
+        self.item_tree = ttk.Treeview(
+            panel,
+            columns=columns,
+            show="headings",
+            height=10,
+            selectmode="browse",
+        )
         headers = {
             "item_name": "道具名",
             "tag": "标签",
@@ -1379,7 +1619,13 @@ class IncomeTrackerApp:
         parent.rowconfigure(0, weight=1)
 
         columns = ("time", "item_name", "tag", "price", "quantity", "subtotal")
-        self.today_tree = ttk.Treeview(parent, columns=columns, show="headings", height=16)
+        self.today_tree = ttk.Treeview(
+            parent,
+            columns=columns,
+            show="headings",
+            height=16,
+            selectmode="browse",
+        )
         headers = {
             "time": "最后记录时间",
             "item_name": "道具名",
@@ -1417,7 +1663,13 @@ class IncomeTrackerApp:
             "total_coin",
             "total_cash",
         )
-        self.total_tree = ttk.Treeview(parent, columns=columns, show="headings", height=16)
+        self.total_tree = ttk.Treeview(
+            parent,
+            columns=columns,
+            show="headings",
+            height=16,
+            selectmode="browse",
+        )
         headers = {
             "item_name": "道具名",
             "tag": "标签",
@@ -1494,10 +1746,11 @@ class IncomeTrackerApp:
         for item_id in self.item_tree.get_children():
             self.item_tree.delete(item_id)
 
+        selected_row = None
         for item in self.store.get_items():
             if not self._item_matches_filter(item):
                 continue
-            self.item_tree.insert(
+            row_id = self.item_tree.insert(
                 "",
                 tk.END,
                 values=(
@@ -1505,8 +1758,15 @@ class IncomeTrackerApp:
                     item["tag"] or "-",
                 ),
             )
+            if item["name"] == self.record_item_var.get():
+                selected_row = row_id
+
+        if selected_row is not None:
+            self.item_tree.selection_set(selected_row)
+            self.item_tree.focus(selected_row)
 
         self._refresh_manage_tree()
+        self._refresh_preset_tree()
 
     def _refresh_selected_item_details(self, records: List[dict]) -> None:
         item = self.store.get_item(self.record_item_var.get())
@@ -1603,14 +1863,7 @@ class IncomeTrackerApp:
         self.status_var.set("已保存人民币和梦幻币比例。")
 
     def import_preset_items(self) -> None:
-        added_count, skipped_count = self.store.import_preset_items()
-        self.refresh_views()
-        if added_count:
-            self.status_var.set(
-                f"已导入常用道具模板：新增 {added_count} 个，跳过 {skipped_count} 个已存在道具。"
-            )
-            return
-        self.status_var.set("常用道具模板已全部存在，没有新增。")
+        self.open_preset_window()
 
     def add_item(self) -> None:
         item_name = self.manage_item_var.get().strip()

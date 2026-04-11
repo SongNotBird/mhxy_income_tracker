@@ -8,3 +8,5 @@ venv/
 build/
 dist/
 *.spec
+output/
+ui_preview*.png

@@ -91,13 +91,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           asset="$(find release -type f -name '*.exe' -print -quit)"
           notes=$'自动构建的 Windows 单文件版本。\n\n下载后直接双击运行 MHXYIncomeTracker.exe。'
 
-          if gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release upload "$VERSION" "$asset#MHXYIncomeTracker.exe" --clobber
-            gh release edit "$VERSION" --title "$VERSION" --notes "$notes"
+          if gh release view "$VERSION" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$VERSION" "$asset#MHXYIncomeTracker.exe" --repo "$REPOSITORY" --clobber
+            gh release edit "$VERSION" --repo "$REPOSITORY" --title "$VERSION" --notes "$notes"
           else
-            gh release create "$VERSION" "$asset#MHXYIncomeTracker.exe" --title "$VERSION" --notes "$notes"
+            gh release create "$VERSION" "$asset#MHXYIncomeTracker.exe" --repo "$REPOSITORY" --title "$VERSION" --notes "$notes"
           fi

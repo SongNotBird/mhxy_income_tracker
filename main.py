@@ -24,7 +24,7 @@ except ModuleNotFoundError as exc:
 
 APP_TITLE = "梦幻西游收益统计"
 DEFAULT_WINDOW_WIDTH = 1320
-DEFAULT_WINDOW_HEIGHT = 830
+DEFAULT_WINDOW_HEIGHT = 900
 MANAGE_WINDOW_WIDTH = 920
 MANAGE_WINDOW_HEIGHT = 640
 PRESET_WINDOW_WIDTH = 760
@@ -78,10 +78,10 @@ SELECT_BG = "#f3e6bc"
 def clamp_window_size(widget, width: int, height: int) -> tuple[int, int, int, int]:
     screen_width = widget.winfo_screenwidth()
     screen_height = widget.winfo_screenheight()
-    final_width = min(width, max(960, screen_width - 80))
-    final_height = min(height, max(680, screen_height - 110))
-    pos_x = max(20, (screen_width - final_width) // 2)
-    pos_y = max(20, (screen_height - final_height) // 2)
+    final_width = min(width, max(1024, screen_width - 48))
+    final_height = min(height, max(720, screen_height - 72))
+    pos_x = max(8, (screen_width - final_width) // 2)
+    pos_y = max(8, (screen_height - final_height) // 2)
     return final_width, final_height, pos_x, pos_y
 
 
@@ -875,8 +875,8 @@ class IncomeTrackerApp:
         )
 
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=6)
-        self.root.rowconfigure(3, weight=5)
+        self.root.rowconfigure(2, weight=0)
+        self.root.rowconfigure(3, weight=1)
 
     def _build_ui(self) -> None:
         header = ttk.Frame(self.root, padding=(20, 18, 20, 10), style="App.TFrame")
@@ -898,8 +898,9 @@ class IncomeTrackerApp:
         toolbar.grid(row=1, column=0, sticky="ew")
         self._build_toolbar(toolbar)
 
-        main = ttk.Frame(self.root, padding=(20, 0, 20, 10), style="App.TFrame")
-        main.grid(row=2, column=0, sticky="nsew")
+        main = ttk.Frame(self.root, padding=(20, 0, 20, 10), style="App.TFrame", height=330)
+        main.grid(row=2, column=0, sticky="ew")
+        main.grid_propagate(False)
         main.columnconfigure(0, weight=7)
         main.columnconfigure(1, weight=5)
         main.rowconfigure(0, weight=1)
@@ -910,10 +911,26 @@ class IncomeTrackerApp:
         summary = ttk.Frame(self.root, padding=(20, 0, 20, 10), style="App.TFrame")
         summary.grid(row=3, column=0, sticky="nsew")
         summary.columnconfigure(0, weight=1)
-        summary.rowconfigure(1, weight=1)
+        summary.rowconfigure(2, weight=1)
+
+        summary_head = ttk.Frame(summary, style="App.TFrame")
+        summary_head.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        summary_head.columnconfigure(1, weight=1)
+
+        ttk.Label(summary_head, text="统计明细", style="HeaderSub.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        summary_stats = ttk.Frame(summary_head, style="App.TFrame")
+        summary_stats.grid(row=0, column=1, sticky="e")
+        ttk.Label(summary_stats, textvariable=self.today_total_coin_var, style="Subtle.TLabel").grid(
+            row=0, column=0, padx=(0, 14)
+        )
+        ttk.Label(summary_stats, textvariable=self.total_coin_var, style="Subtle.TLabel").grid(
+            row=0, column=1
+        )
 
         tabs_bar = ttk.Frame(summary, style="App.TFrame")
-        tabs_bar.grid(row=0, column=0, sticky="w", pady=(0, 8))
+        tabs_bar.grid(row=1, column=0, sticky="w", pady=(0, 8))
 
         tab_specs = [
             ("today", "当日记录"),
@@ -932,7 +949,7 @@ class IncomeTrackerApp:
             self.summary_tab_buttons[tab_key] = button
 
         summary_body = ttk.Frame(summary, style="App.TFrame")
-        summary_body.grid(row=1, column=0, sticky="nsew")
+        summary_body.grid(row=2, column=0, sticky="nsew")
         summary_body.columnconfigure(0, weight=1)
         summary_body.rowconfigure(0, weight=1)
 
@@ -1044,6 +1061,7 @@ class IncomeTrackerApp:
         panel.grid(row=0, column=1, sticky="nsew")
         panel.columnconfigure(0, weight=1)
         panel.columnconfigure(1, weight=1)
+        panel.rowconfigure(4, weight=1)
 
         hero = ttk.Frame(panel, style="Hero.TFrame")
         hero.grid(row=0, column=0, columnspan=2, sticky="ew")
@@ -1068,7 +1086,7 @@ class IncomeTrackerApp:
         ).grid(row=3, column=0, sticky="w", pady=(2, 0))
 
         info = ttk.Frame(panel, style="Card.TFrame")
-        info.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        info.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         info.columnconfigure(1, weight=1)
         info.columnconfigure(3, weight=1)
         ttk.Label(info, text="标签", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w", pady=6)
@@ -1085,7 +1103,7 @@ class IncomeTrackerApp:
         )
 
         qty_frame = ttk.Frame(panel, style="Card.TFrame")
-        qty_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        qty_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         qty_frame.columnconfigure(1, weight=1)
         qty_frame.columnconfigure(3, weight=1)
         ttk.Label(qty_frame, text="本次数量", style="CardTitle.TLabel").grid(
@@ -1110,8 +1128,8 @@ class IncomeTrackerApp:
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         quick_buttons = ttk.Frame(qty_frame, style="Card.TFrame")
-        quick_buttons.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
-        for index, amount in enumerate((1, 2, 5, 10, 20, 50)):
+        quick_buttons.grid(row=1, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        for index, amount in enumerate((1, 5, 10, 20)):
             ttk.Button(
                 quick_buttons,
                 text=str(amount),
@@ -1121,7 +1139,7 @@ class IncomeTrackerApp:
             ).grid(row=0, column=index, padx=(0 if index == 0 else 8, 0))
 
         action_row = ttk.Frame(panel, style="Surface.TFrame")
-        action_row.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        action_row.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         ttk.Button(
             action_row,
             text="保存本次收获",
@@ -1139,26 +1157,14 @@ class IncomeTrackerApp:
             command=self.delete_selected_record,
         ).grid(row=0, column=2, padx=(8, 0))
 
-        stat_wrap = ttk.Frame(panel, style="Surface.TFrame")
-        stat_wrap.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        stat_wrap.columnconfigure(0, weight=1)
-        stat_wrap.columnconfigure(1, weight=1)
-        stat_wrap.columnconfigure(2, weight=1)
-        stat_wrap.columnconfigure(3, weight=1)
-        self._create_stat_card(stat_wrap, 0, 0, "当日总梦幻币", self.today_total_coin_var)
-        self._create_stat_card(stat_wrap, 0, 1, "当日总收益", self.today_total_cash_var)
-        self._create_stat_card(stat_wrap, 0, 2, "累计总梦幻币", self.total_coin_var)
-        self._create_stat_card(stat_wrap, 0, 3, "累计总收益", self.total_cash_var)
-
-        rate_hint = ttk.Frame(panel, style="Surface.TFrame")
-        rate_hint.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-        rate_hint.columnconfigure(0, weight=1)
-        ttk.Label(rate_hint, textvariable=self.rate_hint_var, style="Subtle.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Button(rate_hint, text="修改汇率", command=self.open_rate_window).grid(
-            row=0, column=1, sticky="e"
-        )
+        tip_row = ttk.Frame(panel, style="Surface.TFrame")
+        tip_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        tip_row.columnconfigure(0, weight=1)
+        ttk.Label(
+            tip_row,
+            text="汇率和总统计在下面看，右侧这里只保留当天录入。",
+            style="Subtle.TLabel",
+        ).grid(row=0, column=0, sticky="w")
 
     def _build_trend_panel(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)

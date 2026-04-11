@@ -29,6 +29,8 @@ MANAGE_WINDOW_WIDTH = 920
 MANAGE_WINDOW_HEIGHT = 640
 PRESET_WINDOW_WIDTH = 760
 PRESET_WINDOW_HEIGHT = 620
+RATE_WINDOW_WIDTH = 500
+RATE_WINDOW_HEIGHT = 250
 DATA_FILE_ENV = "MHXY_INCOME_TRACKER_DATA_FILE"
 SCHEMA_VERSION = 3
 PRESET_ITEMS = [
@@ -588,6 +590,10 @@ class IncomeTrackerApp:
         self.manage_tree: Optional[ttk.Treeview] = None
         self.preset_window: Optional[tk.Toplevel] = None
         self.preset_tree: Optional[ttk.Treeview] = None
+        self.rate_window: Optional[tk.Toplevel] = None
+        self.summary_tab_frames: Dict[str, ttk.Frame] = {}
+        self.summary_tab_buttons: Dict[str, ttk.Button] = {}
+        self.current_summary_tab = "today"
 
         self._configure_window()
         self._build_ui()
@@ -681,19 +687,19 @@ class IncomeTrackerApp:
             "HeroName.TLabel",
             background=HERO_BG,
             foreground=ACCENT_BLUE,
-            font=("Microsoft YaHei UI", 20, "bold"),
+            font=("Microsoft YaHei UI", 16, "bold"),
         )
         style.configure(
             "HeroPrice.TLabel",
             background=HERO_BG,
             foreground=ACCENT_JADE,
-            font=("Microsoft YaHei UI", 18, "bold"),
+            font=("Microsoft YaHei UI", 14, "bold"),
         )
         style.configure(
             "BigValue.TLabel",
             background=CARD_BG,
             foreground=TEXT_COLOR,
-            font=("Microsoft YaHei UI", 18, "bold"),
+            font=("Microsoft YaHei UI", 13, "bold"),
         )
         style.configure(
             "EstimateLabel.TLabel",
@@ -705,7 +711,7 @@ class IncomeTrackerApp:
             "EstimateValue.TLabel",
             background=ACCENT_GOLD_LIGHT,
             foreground="#b06b12",
-            font=("Microsoft YaHei UI", 18, "bold"),
+            font=("Microsoft YaHei UI", 14, "bold"),
         )
         style.configure(
             "Subtle.TLabel",
@@ -842,23 +848,35 @@ class IncomeTrackerApp:
             bordercolor=BORDER_COLOR,
             arrowcolor=ACCENT_BLUE,
         )
-        style.configure("TNotebook", background=APP_BG, borderwidth=0)
         style.configure(
-            "TNotebook.Tab",
-            background="#e7d9bc",
-            foreground="#634d33",
-            padding=(16, 8),
-            font=("Microsoft YaHei UI", 10, "bold"),
+            "SectionTab.TButton",
+            background="#ecdfc2",
+            foreground="#6a5437",
+            bordercolor=BORDER_COLOR,
+            padding=(16, 7),
+            relief="solid",
         )
         style.map(
-            "TNotebook.Tab",
-            background=[("selected", "#f7edd8"), ("active", "#f0e0be")],
-            foreground=[("selected", TEXT_COLOR)],
+            "SectionTab.TButton",
+            background=[("active", "#f0e0be")],
+        )
+        style.configure(
+            "SectionTabActive.TButton",
+            background="#f7edd8",
+            foreground=TEXT_COLOR,
+            bordercolor=ACCENT_GOLD,
+            padding=(16, 7),
+            relief="solid",
+        )
+        style.map(
+            "SectionTabActive.TButton",
+            background=[("active", "#f7edd8")],
+            foreground=[("active", TEXT_COLOR)],
         )
 
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=5)
-        self.root.rowconfigure(3, weight=4)
+        self.root.rowconfigure(2, weight=6)
+        self.root.rowconfigure(3, weight=5)
 
     def _build_ui(self) -> None:
         header = ttk.Frame(self.root, padding=(20, 18, 20, 10), style="App.TFrame")
@@ -889,21 +907,52 @@ class IncomeTrackerApp:
         self._build_catalog_panel(main)
         self._build_quick_entry_panel(main)
 
-        notebook = ttk.Notebook(self.root)
-        notebook.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 10))
+        summary = ttk.Frame(self.root, padding=(20, 0, 20, 10), style="App.TFrame")
+        summary.grid(row=3, column=0, sticky="nsew")
+        summary.columnconfigure(0, weight=1)
+        summary.rowconfigure(1, weight=1)
 
-        today_tab = ttk.Frame(notebook, padding=14)
-        total_tab = ttk.Frame(notebook, padding=14)
-        trend_tab = ttk.Frame(notebook, padding=14)
-        notebook.add(today_tab, text="当日记录")
-        notebook.add(total_tab, text="总统计")
-        notebook.add(trend_tab, text="收益趋势")
+        tabs_bar = ttk.Frame(summary, style="App.TFrame")
+        tabs_bar.grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        tab_specs = [
+            ("today", "当日记录"),
+            ("total", "总统计"),
+            ("trend", "收益趋势"),
+        ]
+        for index, (tab_key, label) in enumerate(tab_specs):
+            button = ttk.Button(
+                tabs_bar,
+                text=label,
+                style="SectionTab.TButton",
+                command=lambda key=tab_key: self.switch_summary_tab(key),
+                width=12,
+            )
+            button.grid(row=0, column=index, padx=(0 if index == 0 else 8, 0))
+            self.summary_tab_buttons[tab_key] = button
+
+        summary_body = ttk.Frame(summary, style="App.TFrame")
+        summary_body.grid(row=1, column=0, sticky="nsew")
+        summary_body.columnconfigure(0, weight=1)
+        summary_body.rowconfigure(0, weight=1)
+
+        today_tab = ttk.Frame(summary_body, padding=14, style="Surface.TFrame")
+        total_tab = ttk.Frame(summary_body, padding=14, style="Surface.TFrame")
+        trend_tab = ttk.Frame(summary_body, padding=14, style="Surface.TFrame")
+        for tab_key, frame in (
+            ("today", today_tab),
+            ("total", total_tab),
+            ("trend", trend_tab),
+        ):
+            frame.grid(row=0, column=0, sticky="nsew")
+            self.summary_tab_frames[tab_key] = frame
 
         self._build_today_table(today_tab)
         self._build_total_table(total_tab)
         self._build_trend_panel(trend_tab)
+        self.switch_summary_tab("today")
 
-        footer = ttk.Frame(self.root, padding=(20, 0, 20, 18), style="App.TFrame")
+        footer = ttk.Frame(self.root, padding=(20, 0, 20, 14), style="App.TFrame")
         footer.grid(row=4, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Label(footer, textvariable=self.status_var, style="Subtle.TLabel").grid(
@@ -929,7 +978,7 @@ class IncomeTrackerApp:
 
         ttk.Button(
             parent,
-            text="道具价格管理",
+            text="单价管理",
             command=self.open_manage_window,
             style="Primary.TButton",
         ).grid(
@@ -943,8 +992,11 @@ class IncomeTrackerApp:
         ).grid(
             row=0, column=5, padx=(0, 8), pady=4
         )
+        ttk.Button(parent, text="汇率设置", command=self.open_rate_window).grid(
+            row=0, column=6, padx=(0, 8), pady=4
+        )
         ttk.Button(parent, text="导出 CSV", command=self.export_report).grid(
-            row=0, column=6, pady=4
+            row=0, column=7, pady=4
         )
 
     def _build_catalog_panel(self, parent: ttk.Frame) -> None:
@@ -967,6 +1019,7 @@ class IncomeTrackerApp:
             show="headings",
             height=18,
             selectmode="browse",
+            takefocus=False,
         )
         headers = {
             "item_name": "道具名",
@@ -987,7 +1040,7 @@ class IncomeTrackerApp:
         self.item_tree.bind("<<TreeviewSelect>>", self._on_item_tree_select)
 
     def _build_quick_entry_panel(self, parent: ttk.Frame) -> None:
-        panel = ttk.Labelframe(parent, text="每日录入", padding=16, style="Panel.TLabelframe")
+        panel = ttk.Labelframe(parent, text="每日录入", padding=12, style="Panel.TLabelframe")
         panel.grid(row=0, column=1, sticky="nsew")
         panel.columnconfigure(0, weight=1)
         panel.columnconfigure(1, weight=1)
@@ -1002,7 +1055,7 @@ class IncomeTrackerApp:
             hero,
             textvariable=self.selected_item_name_var,
             style="HeroName.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(8, 6))
+        ).grid(row=1, column=0, sticky="w", pady=(6, 4))
         ttk.Label(
             hero,
             textvariable=self.selected_price_var,
@@ -1012,10 +1065,10 @@ class IncomeTrackerApp:
             hero,
             text="左边点一下物品，右边只输数量就行。",
             style="HeroSubtle.TLabel",
-        ).grid(row=3, column=0, sticky="w", pady=(4, 0))
+        ).grid(row=3, column=0, sticky="w", pady=(2, 0))
 
         info = ttk.Frame(panel, style="Card.TFrame")
-        info.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        info.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         info.columnconfigure(1, weight=1)
         info.columnconfigure(3, weight=1)
         ttk.Label(info, text="标签", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w", pady=6)
@@ -1032,7 +1085,7 @@ class IncomeTrackerApp:
         )
 
         qty_frame = ttk.Frame(panel, style="Card.TFrame")
-        qty_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        qty_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         qty_frame.columnconfigure(1, weight=1)
         qty_frame.columnconfigure(3, weight=1)
         ttk.Label(qty_frame, text="本次数量", style="CardTitle.TLabel").grid(
@@ -1057,7 +1110,7 @@ class IncomeTrackerApp:
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         quick_buttons = ttk.Frame(qty_frame, style="Card.TFrame")
-        quick_buttons.grid(row=1, column=0, columnspan=4, sticky="w", pady=(12, 0))
+        quick_buttons.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
         for index, amount in enumerate((1, 2, 5, 10, 20, 50)):
             ttk.Button(
                 quick_buttons,
@@ -1068,7 +1121,7 @@ class IncomeTrackerApp:
             ).grid(row=0, column=index, padx=(0 if index == 0 else 8, 0))
 
         action_row = ttk.Frame(panel, style="Surface.TFrame")
-        action_row.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        action_row.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         ttk.Button(
             action_row,
             text="保存本次收获",
@@ -1087,31 +1140,24 @@ class IncomeTrackerApp:
         ).grid(row=0, column=2, padx=(8, 0))
 
         stat_wrap = ttk.Frame(panel, style="Surface.TFrame")
-        stat_wrap.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        stat_wrap.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         stat_wrap.columnconfigure(0, weight=1)
         stat_wrap.columnconfigure(1, weight=1)
+        stat_wrap.columnconfigure(2, weight=1)
+        stat_wrap.columnconfigure(3, weight=1)
         self._create_stat_card(stat_wrap, 0, 0, "当日总梦幻币", self.today_total_coin_var)
         self._create_stat_card(stat_wrap, 0, 1, "当日总收益", self.today_total_cash_var)
-        self._create_stat_card(stat_wrap, 1, 0, "累计总梦幻币", self.total_coin_var)
-        self._create_stat_card(stat_wrap, 1, 1, "累计总收益", self.total_cash_var)
+        self._create_stat_card(stat_wrap, 0, 2, "累计总梦幻币", self.total_coin_var)
+        self._create_stat_card(stat_wrap, 0, 3, "累计总收益", self.total_cash_var)
 
-        rate_frame = ttk.Frame(panel, style="Card.TFrame")
-        rate_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        rate_frame.columnconfigure(1, weight=1)
-        rate_frame.columnconfigure(3, weight=1)
-        ttk.Label(rate_frame, text="人民币比例（元）", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w", pady=6)
-        ttk.Entry(rate_frame, textvariable=self.cash_ratio_var).grid(
-            row=0, column=1, sticky="ew", padx=(10, 16), pady=6
+        rate_hint = ttk.Frame(panel, style="Surface.TFrame")
+        rate_hint.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        rate_hint.columnconfigure(0, weight=1)
+        ttk.Label(rate_hint, textvariable=self.rate_hint_var, style="Subtle.TLabel").grid(
+            row=0, column=0, sticky="w"
         )
-        ttk.Label(rate_frame, text="梦幻币比例", style="CardSubtle.TLabel").grid(row=0, column=2, sticky="w", pady=6)
-        ttk.Entry(rate_frame, textvariable=self.coin_ratio_var).grid(
-            row=0, column=3, sticky="ew", padx=(10, 0), pady=6
-        )
-        ttk.Label(rate_frame, textvariable=self.rate_hint_var, style="CardSubtle.TLabel").grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(4, 0)
-        )
-        ttk.Button(rate_frame, text="保存比例", command=self.save_exchange_rate).grid(
-            row=1, column=3, sticky="e", pady=(4, 0)
+        ttk.Button(rate_hint, text="修改汇率", command=self.open_rate_window).grid(
+            row=0, column=1, sticky="e"
         )
 
     def _build_trend_panel(self, parent: ttk.Frame) -> None:
@@ -1206,6 +1252,7 @@ class IncomeTrackerApp:
             columns=columns,
             show="headings",
             selectmode="browse",
+            takefocus=False,
         )
         headers = {
             "item_name": "道具名",
@@ -1291,6 +1338,7 @@ class IncomeTrackerApp:
             columns=columns,
             show="headings",
             selectmode="browse",
+            takefocus=False,
         )
         headers = {
             "item_name": "常用道具",
@@ -1331,6 +1379,85 @@ class IncomeTrackerApp:
             self.preset_window.destroy()
         self.preset_window = None
         self.preset_tree = None
+
+    def open_rate_window(self) -> None:
+        if self.rate_window is not None and self.rate_window.winfo_exists():
+            self.rate_window.deiconify()
+            self.rate_window.lift()
+            self.rate_window.focus_force()
+            return
+
+        window = tk.Toplevel(self.root)
+        width, height, pos_x, pos_y = clamp_window_size(
+            window, RATE_WINDOW_WIDTH, RATE_WINDOW_HEIGHT
+        )
+        window.title("汇率设置")
+        window.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        window.resizable(False, False)
+        window.configure(bg=APP_BG)
+        window.columnconfigure(0, weight=1)
+        window.protocol("WM_DELETE_WINDOW", self._close_rate_window)
+        self.rate_window = window
+
+        frame = ttk.Frame(window, padding=18, style="App.TFrame")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(3, weight=1)
+
+        ttk.Label(
+            frame,
+            text="这里只有你调整人民币和梦幻币比例时才需要打开。",
+            style="HeaderSub.TLabel",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
+        ttk.Label(frame, text="人民币比例（元）").grid(row=1, column=0, sticky="w", pady=6)
+        ttk.Entry(frame, textvariable=self.cash_ratio_var).grid(
+            row=1, column=1, sticky="ew", padx=(10, 16), pady=6
+        )
+        ttk.Label(frame, text="梦幻币比例").grid(row=1, column=2, sticky="w", pady=6)
+        ttk.Entry(frame, textvariable=self.coin_ratio_var).grid(
+            row=1, column=3, sticky="ew", padx=(10, 0), pady=6
+        )
+        ttk.Label(frame, textvariable=self.rate_hint_var, style="Subtle.TLabel").grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(8, 14)
+        )
+
+        buttons = ttk.Frame(frame, style="App.TFrame")
+        buttons.grid(row=3, column=0, columnspan=4, sticky="e")
+        ttk.Button(
+            buttons,
+            text="保存比例",
+            command=self._save_exchange_rate_from_window,
+            style="Primary.TButton",
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(buttons, text="关闭", command=self._close_rate_window).grid(
+            row=0, column=1
+        )
+
+    def _close_rate_window(self) -> None:
+        if self.rate_window is not None and self.rate_window.winfo_exists():
+            self.rate_window.destroy()
+        self.rate_window = None
+
+    def _save_exchange_rate_from_window(self) -> None:
+        self.save_exchange_rate()
+        if self.rate_window is not None and self.rate_window.winfo_exists():
+            self.rate_window.lift()
+
+    def switch_summary_tab(self, tab_key: str) -> None:
+        if tab_key not in self.summary_tab_frames:
+            return
+        self.current_summary_tab = tab_key
+
+        for key, frame in self.summary_tab_frames.items():
+            if key == tab_key:
+                frame.tkraise()
+
+        for key, button in self.summary_tab_buttons.items():
+            button.configure(
+                style="SectionTabActive.TButton"
+                if key == tab_key
+                else "SectionTab.TButton"
+            )
 
     def _preset_matches_filter(self, preset: dict) -> bool:
         search_text = self.preset_filter_var.get().strip().lower()
@@ -1522,6 +1649,7 @@ class IncomeTrackerApp:
             show="headings",
             height=10,
             selectmode="browse",
+            takefocus=False,
         )
         headers = {
             "item_name": "道具名",
@@ -1625,6 +1753,7 @@ class IncomeTrackerApp:
             show="headings",
             height=16,
             selectmode="browse",
+            takefocus=False,
         )
         headers = {
             "time": "最后记录时间",
@@ -1669,6 +1798,7 @@ class IncomeTrackerApp:
             show="headings",
             height=16,
             selectmode="browse",
+            takefocus=False,
         )
         headers = {
             "item_name": "道具名",

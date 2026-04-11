@@ -93,17 +93,18 @@ def main() -> None:
     if max(tab_heights) - min(tab_heights) > 2:
         raise AssertionError(f"summary tab heights differ: {sorted(tab_heights)}")
     if not app.selected_price_var.get().startswith("单价："):
-        raise AssertionError(f"price label unexpected: {app.selected_price_var.get()}")
+        raise AssertionError("price label prefix missing")
     if "元" not in app.selected_today_cash_var.get():
-        raise AssertionError(f"today cash missing: {app.selected_today_cash_var.get()}")
+        raise AssertionError("today cash missing")
     if "元" not in app.today_summary_var.get():
-        raise AssertionError(f"summary cash missing: {app.today_summary_var.get()}")
+        raise AssertionError("summary cash missing")
 
     print(
         "UI smoke passed: "
         f"quick_entry={app.quick_entry_panel.winfo_width()}x{app.quick_entry_panel.winfo_height()}, "
         f"tab_heights={sorted(tab_heights)}, "
-        f"today_summary={app.today_summary_var.get()}"
+        f"today_cash_present={'元' in app.selected_today_cash_var.get()}, "
+        f"summary_cash_present={'元' in app.today_summary_var.get()}"
     )
     root.destroy()
 

@@ -575,12 +575,16 @@ class IncomeTrackerApp:
         self.selected_tag_var = tk.StringVar(value="-")
         self.selected_today_qty_var = tk.StringVar(value="0")
         self.selected_today_coin_var = tk.StringVar(value="0 梦幻币")
+        self.selected_today_cash_var = tk.StringVar(value="0 元")
         self.selected_estimated_coin_var = tk.StringVar(value="0 梦幻币")
+        self.selected_estimated_cash_var = tk.StringVar(value="0 元")
         self.status_var = tk.StringVar(value="准备就绪")
         self.today_total_coin_var = tk.StringVar(value="0 梦幻币")
         self.today_total_cash_var = tk.StringVar(value="0 元")
         self.total_coin_var = tk.StringVar(value="0 梦幻币")
         self.total_cash_var = tk.StringVar(value="0 元")
+        self.today_summary_var = tk.StringVar(value="当日：0 梦幻币 / 0 元")
+        self.total_summary_var = tk.StringVar(value="累计：0 梦幻币 / 0 元")
         self.rate_hint_var = tk.StringVar(value="")
         self.trend_tip_var = tk.StringVar(value="最近 7 天按天统计梦幻币总额")
 
@@ -698,6 +702,30 @@ class IncomeTrackerApp:
             background=HERO_BG,
             foreground=ACCENT_JADE,
             font=("Microsoft YaHei UI", 14, "bold"),
+        )
+        style.configure(
+            "SelectedName.TLabel",
+            background=SURFACE_BG,
+            foreground=ACCENT_BLUE,
+            font=("Microsoft YaHei UI", 18, "bold"),
+        )
+        style.configure(
+            "SelectedMeta.TLabel",
+            background=SURFACE_BG,
+            foreground=TEXT_COLOR,
+            font=("Microsoft YaHei UI", 11),
+        )
+        style.configure(
+            "SelectedMetricLabel.TLabel",
+            background=SURFACE_BG,
+            foreground=MUTED_TEXT,
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
+        style.configure(
+            "SelectedMetricValue.TLabel",
+            background=SURFACE_BG,
+            foreground=TEXT_COLOR,
+            font=("Microsoft YaHei UI", 11, "bold"),
         )
         style.configure(
             "BigValue.TLabel",
@@ -929,17 +957,17 @@ class IncomeTrackerApp:
         )
         summary_stats = ttk.Frame(summary_head, style="App.TFrame")
         summary_stats.grid(row=0, column=1, sticky="e", padx=(0, 12))
-        ttk.Label(summary_stats, textvariable=self.today_total_coin_var, style="Subtle.TLabel").grid(
-            row=0, column=0, padx=(0, 14)
+        ttk.Label(summary_stats, textvariable=self.today_summary_var, style="Subtle.TLabel").grid(
+            row=0, column=0, sticky="e"
         )
-        ttk.Label(summary_stats, textvariable=self.total_coin_var, style="Subtle.TLabel").grid(
-            row=0, column=1
+        ttk.Label(summary_stats, textvariable=self.total_summary_var, style="Subtle.TLabel").grid(
+            row=1, column=0, sticky="e", pady=(2, 0)
         )
         ttk.Button(
             summary_head,
             text="删除选中记录",
             command=self.delete_selected_record,
-        ).grid(row=0, column=2, sticky="e")
+        ).grid(row=0, column=2, rowspan=2, sticky="e")
 
         tabs_bar = ttk.Frame(summary, style="App.TFrame")
         tabs_bar.grid(row=1, column=0, sticky="w", pady=(0, 8))
@@ -1075,46 +1103,49 @@ class IncomeTrackerApp:
         panel.columnconfigure(0, weight=1)
         self.quick_entry_panel = panel
 
-        hero = ttk.Frame(panel, style="Hero.TFrame")
-        hero.grid(row=0, column=0, sticky="ew")
-        hero.columnconfigure(0, weight=1)
-        ttk.Label(hero, text="当前选中道具", style="HeroTitle.TLabel").grid(
+        header = ttk.Frame(panel, style="Surface.TFrame")
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text="当前选中道具", style="SelectedMetricLabel.TLabel").grid(
             row=0, column=0, sticky="w"
         )
         ttk.Label(
-            hero,
+            header,
             textvariable=self.selected_item_name_var,
-            style="HeroName.TLabel",
+            style="SelectedName.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 2))
         ttk.Label(
-            hero,
+            header,
             textvariable=self.selected_price_var,
-            style="HeroPrice.TLabel",
-        ).grid(row=2, column=0, sticky="w", pady=(0, 2))
+            style="SelectedMeta.TLabel",
+        ).grid(row=2, column=0, sticky="w")
 
-        info = ttk.Frame(panel, style="Card.TFrame")
+        info = ttk.Frame(panel, style="Surface.TFrame")
         info.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         info.columnconfigure(1, weight=1)
         info.columnconfigure(3, weight=1)
-        info.columnconfigure(5, weight=1)
-        ttk.Label(info, text="标签", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(info, textvariable=self.selected_tag_var, style="CardTitle.TLabel").grid(
+        ttk.Label(info, text="标签", style="SelectedMetricLabel.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(info, textvariable=self.selected_tag_var, style="SelectedMetricValue.TLabel").grid(
             row=0, column=1, sticky="w", padx=(8, 12)
         )
-        ttk.Label(info, text="今日数量", style="CardSubtle.TLabel").grid(row=0, column=2, sticky="w")
-        ttk.Label(info, textvariable=self.selected_today_qty_var, style="CardTitle.TLabel").grid(
+        ttk.Label(info, text="今日数量", style="SelectedMetricLabel.TLabel").grid(row=0, column=2, sticky="w")
+        ttk.Label(info, textvariable=self.selected_today_qty_var, style="SelectedMetricValue.TLabel").grid(
             row=0, column=3, sticky="w", padx=(8, 12)
         )
-        ttk.Label(info, text="今日收益", style="CardSubtle.TLabel").grid(row=0, column=4, sticky="w")
-        ttk.Label(info, textvariable=self.selected_today_coin_var, style="CardTitle.TLabel").grid(
-            row=0, column=5, sticky="w", padx=(8, 0)
+        ttk.Label(info, text="今日梦幻币", style="SelectedMetricLabel.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(info, textvariable=self.selected_today_coin_var, style="SelectedMetricValue.TLabel").grid(
+            row=1, column=1, sticky="w", padx=(8, 12), pady=(8, 0)
+        )
+        ttk.Label(info, text="今日人民币", style="SelectedMetricLabel.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        ttk.Label(info, textvariable=self.selected_today_cash_var, style="SelectedMetricValue.TLabel").grid(
+            row=1, column=3, sticky="w", padx=(8, 0), pady=(8, 0)
         )
 
-        qty_frame = ttk.Frame(panel, style="Card.TFrame")
+        qty_frame = ttk.Frame(panel, style="Surface.TFrame")
         qty_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         qty_frame.columnconfigure(1, weight=1)
         qty_frame.columnconfigure(4, weight=1)
-        ttk.Label(qty_frame, text="本次数量", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(qty_frame, text="本次数量", style="SelectedMetricLabel.TLabel").grid(row=0, column=0, sticky="w")
         self.quantity_entry = ttk.Entry(qty_frame, textvariable=self.quantity_var)
         self.quantity_entry.grid(row=0, column=1, sticky="ew", padx=(10, 12))
         self.quantity_entry.bind("<Return>", lambda _event: self.save_record())
@@ -1132,17 +1163,22 @@ class IncomeTrackerApp:
         ).grid(
             row=0, column=3, sticky="w"
         )
-        estimate_card = ttk.Frame(qty_frame, style="Estimate.TFrame")
-        estimate_card.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(8, 0))
-        estimate_card.columnconfigure(1, weight=1)
-        ttk.Label(estimate_card, text="本次预计收益", style="EstimateLabel.TLabel").grid(
-            row=0, column=0, sticky="w"
+        ttk.Label(qty_frame, text="本次梦幻币", style="SelectedMetricLabel.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(10, 0)
         )
         ttk.Label(
-            estimate_card,
+            qty_frame,
             textvariable=self.selected_estimated_coin_var,
-            style="EstimateValue.TLabel",
-        ).grid(row=0, column=1, sticky="e")
+            style="SelectedMetricValue.TLabel",
+        ).grid(row=1, column=1, sticky="w", pady=(10, 0))
+        ttk.Label(qty_frame, text="本次人民币", style="SelectedMetricLabel.TLabel").grid(
+            row=1, column=2, sticky="w", pady=(10, 0)
+        )
+        ttk.Label(
+            qty_frame,
+            textvariable=self.selected_estimated_cash_var,
+            style="SelectedMetricValue.TLabel",
+        ).grid(row=1, column=3, columnspan=2, sticky="w", pady=(10, 0))
 
     def _build_trend_panel(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
@@ -1886,18 +1922,20 @@ class IncomeTrackerApp:
         item = self.store.get_item(self.record_item_var.get())
         if item is None:
             self.selected_item_name_var.set("请先从左侧选择道具")
-            self.selected_price_var.set("未选择道具")
+            self.selected_price_var.set("单价：未选择道具")
             self.selected_tag_var.set("-")
             self.selected_today_qty_var.set("0")
             self.selected_today_coin_var.set("0 梦幻币")
+            self.selected_today_cash_var.set("0 元")
             self.selected_estimated_coin_var.set("0 梦幻币")
+            self.selected_estimated_cash_var.set("0 元")
             return
 
         self.selected_item_name_var.set(item["name"])
         if item["price"] <= 0:
-            self.selected_price_var.set("未设置单价")
+            self.selected_price_var.set("单价：未设置")
         else:
-            self.selected_price_var.set(format_coin(item["price"]))
+            self.selected_price_var.set(f"单价：{format_coin(item['price'])}")
         self.selected_tag_var.set(item["tag"] or "-")
 
         today = datetime.now().strftime("%Y-%m-%d")
@@ -1913,27 +1951,34 @@ class IncomeTrackerApp:
 
         self.selected_today_qty_var.set(format_number(today_qty))
         self.selected_today_coin_var.set(format_coin(today_coin))
+        self.selected_today_cash_var.set(format_cash(self.convert_coin_to_cash(today_coin)))
 
         estimated_quantity_text = self.quantity_var.get().strip().replace(",", "")
         if item["price"] <= 0:
             self.selected_estimated_coin_var.set("未设置单价")
+            self.selected_estimated_cash_var.set("未设置单价")
             return
         if not estimated_quantity_text:
             self.selected_estimated_coin_var.set("0 梦幻币")
+            self.selected_estimated_cash_var.set("0 元")
             return
 
         try:
             estimated_quantity = int(estimated_quantity_text)
         except ValueError:
             self.selected_estimated_coin_var.set("数量无效")
+            self.selected_estimated_cash_var.set("数量无效")
             return
 
         if estimated_quantity <= 0:
             self.selected_estimated_coin_var.set("数量无效")
+            self.selected_estimated_cash_var.set("数量无效")
             return
 
-        self.selected_estimated_coin_var.set(
-            format_coin(item["price"] * estimated_quantity)
+        estimated_coin = item["price"] * estimated_quantity
+        self.selected_estimated_coin_var.set(format_coin(estimated_coin))
+        self.selected_estimated_cash_var.set(
+            format_cash(self.convert_coin_to_cash(estimated_coin))
         )
 
     def clear_catalog_filters(self) -> None:
@@ -2212,6 +2257,12 @@ class IncomeTrackerApp:
         self.today_total_cash_var.set(format_cash(today_total_cash))
         self.total_coin_var.set(format_coin(total_coin))
         self.total_cash_var.set(format_cash(total_cash))
+        self.today_summary_var.set(
+            f"当日：{format_coin(today_total_coin)} / {format_cash(today_total_cash)}"
+        )
+        self.total_summary_var.set(
+            f"累计：{format_coin(total_coin)} / {format_cash(total_cash)}"
+        )
         self.rate_hint_var.set(
             f"{format_number(exchange_rate.get('cash', 0))} 元 = "
             f"{format_number(exchange_rate.get('coin', 0))} 梦幻币"

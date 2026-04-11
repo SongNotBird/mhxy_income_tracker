@@ -78,6 +78,8 @@ def main() -> None:
 
     root = tk.Tk()
     app = IncomeTrackerApp(root)
+    app.record_item_var.set("修炼果")
+    app.quantity_var.set("2")
     root.update()
     root.update_idletasks()
 
@@ -89,11 +91,18 @@ def main() -> None:
     tab_heights = {button.winfo_height() for button in app.summary_tab_buttons.values()}
     if len(tab_heights) != 1:
         raise AssertionError(f"summary tab heights differ: {sorted(tab_heights)}")
+    if not app.selected_price_var.get().startswith("单价："):
+        raise AssertionError(f"price label unexpected: {app.selected_price_var.get()}")
+    if "元" not in app.selected_today_cash_var.get():
+        raise AssertionError(f"today cash missing: {app.selected_today_cash_var.get()}")
+    if "元" not in app.today_summary_var.get():
+        raise AssertionError(f"summary cash missing: {app.today_summary_var.get()}")
 
     print(
         "UI smoke passed: "
         f"quick_entry={app.quick_entry_panel.winfo_width()}x{app.quick_entry_panel.winfo_height()}, "
-        f"tab_heights={sorted(tab_heights)}"
+        f"tab_heights={sorted(tab_heights)}, "
+        f"today_summary={app.today_summary_var.get()}"
     )
     root.destroy()
 

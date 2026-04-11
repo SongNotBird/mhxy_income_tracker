@@ -444,6 +444,31 @@ class DataStore:
         self.data["items"][normalized]["updated_at"] = current_timestamp()
         self._save()
 
+    def delete_item(self, item_name: str) -> None:
+        normalized = item_name.strip()
+        if normalized not in self.data["items"]:
+            raise ValueError("这个道具不存在，可能已经被删除。")
+        del self.data["items"][normalized]
+        self._save()
+
+    def export_config(self, file_path: Path) -> None:
+        items: Dict[str, dict] = {}
+        for item in self.get_items():
+            items[item["name"]] = {
+                "price": int(item["price"]),
+                "tag": item["tag"],
+                "updated_at": item["updated_at"],
+            }
+
+        payload = {
+            "exported_at": current_timestamp(),
+            "schema_version": SCHEMA_VERSION,
+            "exchange_rate": self.get_exchange_rate(),
+            "items": items,
+        }
+        with file_path.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, indent=2)
+
     def get_available_preset_items(self) -> List[dict]:
         existing_names = set(self.data["items"])
         available: List[dict] = []
@@ -1042,12 +1067,7 @@ class IncomeTrackerApp:
         ).grid(
             row=0, column=4, padx=(0, 8), pady=4
         )
-        ttk.Button(
-            parent,
-            text="添加常用道具",
-            command=self.open_preset_window,
-            style="Success.TButton",
-        ).grid(
+        ttk.Button(parent, text="导出配置", command=self.export_config).grid(
             row=0, column=5, padx=(0, 8), pady=4
         )
         ttk.Button(parent, text="汇率设置", command=self.open_rate_window).grid(
@@ -1254,11 +1274,15 @@ class IncomeTrackerApp:
         buttons.grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
         ttk.Button(buttons, text="新增道具", command=self.add_item, style="Primary.TButton").grid(row=0, column=0, padx=(0, 8))
         ttk.Button(buttons, text="更新价格", command=self.update_item).grid(row=0, column=1, padx=8)
+        ttk.Button(buttons, text="删除道具", command=self.delete_item).grid(row=0, column=2, padx=8)
         ttk.Button(buttons, text="添加常用道具", command=self.open_preset_window, style="Success.TButton").grid(
-            row=0, column=2, padx=8
+            row=0, column=3, padx=8
+        )
+        ttk.Button(buttons, text="导出配置", command=self.export_config).grid(
+            row=0, column=4, padx=8
         )
         ttk.Button(buttons, text="关闭", command=self._close_manage_window).grid(
-            row=0, column=3, padx=(8, 0)
+            row=0, column=5, padx=(8, 0)
         )
 
         table_frame = ttk.Frame(window, padding=(16, 0, 16, 16), style="App.TFrame")
@@ -2065,6 +2089,44 @@ class IncomeTrackerApp:
             f"已更新：{item_name} -> {format_coin(price)}，标签 {tag or '-'}。"
         )
 
+    def delete_item(self) -> None:
+        item_name = self.manage_item_var.get().strip()
+        if not item_name:
+            messagebox.showinfo("提示", "请先在道具列表里选中一个道具。")
+            return
+
+        related_record_count = sum(
+            1
+            for record in self.store.get_records()
+            if str(record.get("item_name", "")).strip() == item_name
+        )
+        warning = ""
+        if related_record_count:
+            warning = (
+                f"\n\n这个道具已有 {related_record_count} 条历史记录。"
+                " 删除后只会从道具库移除，历史记录仍然保留。"
+            )
+        if not messagebox.askyesno(
+            "确认删除",
+            f"确定删除道具“{item_name}”吗？{warning}",
+        ):
+            return
+
+        try:
+            self.store.delete_item(item_name)
+        except ValueError as error:
+            messagebox.showerror("删除失败", str(error))
+            return
+
+        remaining_item_names = self.store.get_item_names()
+        self.manage_item_var.set("")
+        self.manage_price_var.set("")
+        self.manage_tag_var.set("")
+        self.record_item_var.set(remaining_item_names[0] if remaining_item_names else "")
+        self.quantity_var.set("1")
+        self.refresh_views()
+        self.status_var.set(f"已从道具库删除：{item_name}。")
+
     def load_selected_item_to_form(self) -> None:
         selection = self.item_tree.selection()
         if not selection:
@@ -2152,6 +2214,19 @@ class IncomeTrackerApp:
 
         self.refresh_views()
         self.status_var.set("已删除选中的当日记录。")
+
+    def export_config(self) -> None:
+        file_path = filedialog.asksaveasfilename(
+            title="导出道具配置",
+            defaultextension=".json",
+            filetypes=[("JSON 文件", "*.json")],
+            initialfile=f"mhxy_config_{datetime.now().strftime('%Y%m%d')}.json",
+        )
+        if not file_path:
+            return
+
+        self.store.export_config(Path(file_path))
+        self.status_var.set(f"已导出配置：{file_path}")
 
     def _build_total_summary_rows(self, records: List[dict]) -> List[dict]:
         summary: Dict[str, dict] = {}

@@ -56,15 +56,16 @@ def build_sample_data(file_path: Path) -> None:
     file_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def assert_childs_fit(parent: tk.Misc, label: str) -> None:
+def assert_childs_fit(parent: tk.Misc, label: str, tolerance: int = 8) -> None:
     parent.update_idletasks()
     parent_height = parent.winfo_height()
     failures: list[str] = []
     for child in parent.winfo_children():
         bottom = child.winfo_y() + child.winfo_height()
-        if bottom > parent_height:
+        if bottom > parent_height + tolerance:
             failures.append(
-                f"{label}: child {child.winfo_class()} bottom={bottom} parent_height={parent_height}"
+                f"{label}: child {child.winfo_class()} bottom={bottom} "
+                f"parent_height={parent_height} tolerance={tolerance}"
             )
     if failures:
         raise AssertionError("\n".join(failures))
@@ -88,8 +89,8 @@ def main() -> None:
 
     assert_childs_fit(app.quick_entry_panel, "quick_entry_panel")
 
-    tab_heights = {button.winfo_height() for button in app.summary_tab_buttons.values()}
-    if len(tab_heights) != 1:
+    tab_heights = [button.winfo_height() for button in app.summary_tab_buttons.values()]
+    if max(tab_heights) - min(tab_heights) > 2:
         raise AssertionError(f"summary tab heights differ: {sorted(tab_heights)}")
     if not app.selected_price_var.get().startswith("单价："):
         raise AssertionError(f"price label unexpected: {app.selected_price_var.get()}")

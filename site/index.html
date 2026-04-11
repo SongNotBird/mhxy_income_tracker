@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>梦幻西游收益统计下载页</title>
+    <meta
+      name="description"
+      content="梦幻西游收益统计 Windows EXE 固定下载页"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="backdrop"></div>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">MHXY Income Tracker</p>
+        <h1>梦幻西游收益统计</h1>
+        <p class="hero-text">
+          固定下载页会自动读取当前仓库的最新 Release，并提供 Windows
+          单文件版 `exe` 下载。
+        </p>
+        <div class="actions">
+          <a id="download-link" class="button primary" href="#" aria-disabled="true">
+            暂无可下载版本
+          </a>
+          <a id="release-link" class="button ghost" href="#" target="_blank" rel="noreferrer">
+            查看 Release
+          </a>
+        </div>
+      </section>
+
+      <section class="panel status-panel">
+        <div>
+          <p class="label">发布仓库</p>
+          <p id="repo-name" class="value">识别中</p>
+        </div>
+        <div>
+          <p class="label">最新版本</p>
+          <p id="version-name" class="value">读取中</p>
+        </div>
+        <div>
+          <p class="label">发布时间</p>
+          <p id="published-at" class="value">读取中</p>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel">
+          <h2>版本说明</h2>
+          <pre id="release-notes" class="notes">正在读取最新版本说明...</pre>
+        </article>
+
+        <article class="panel">
+          <h2>可下载文件</h2>
+          <ul id="asset-list" class="asset-list">
+            <li>正在读取附件...</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="panel help-panel">
+        <h2>更新方式</h2>
+        <ol>
+          <li>修改程序代码并推送到 GitHub 仓库。</li>
+          <li>在 GitHub Actions 里运行 `Release Windows EXE`，输入版本号，例如 `v1.0.0`。</li>
+          <li>新的 `exe` 会自动附加到 Release，这个固定下载页也会自动显示最新版。</li>
+        </ol>
+        <p id="status-message" class="status-message">正在连接 GitHub Release API...</p>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -9,7 +9,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 import pyautogui
 
@@ -28,6 +28,129 @@ class WatchConfig(NamedTuple):
     dry_run: bool
     repeat: bool
     once: bool
+
+
+class RegionSelectionOverlay(tk.Toplevel):
+    def __init__(self, parent: tk.Tk, on_done: Callable[[Box | None], None]) -> None:
+        super().__init__(parent)
+        self.on_done = on_done
+        self.start_root: Point | None = None
+        self.start_canvas: Point | None = None
+        self.rect_id: int | None = None
+
+        width = parent.winfo_screenwidth()
+        height = parent.winfo_screenheight()
+        self.geometry(f"{width}x{height}+0+0")
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.32)
+        self.configure(bg="black")
+
+        self.canvas = tk.Canvas(self, bg="black", highlightthickness=0, cursor="crosshair")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.create_text(
+            width // 2,
+            32,
+            text="拖动选择监控区域，松开鼠标确认；按 Esc 取消",
+            fill="white",
+            font=("Microsoft YaHei UI", 15, "bold"),
+        )
+
+        self.canvas.bind("<ButtonPress-1>", self._start)
+        self.canvas.bind("<B1-Motion>", self._drag)
+        self.canvas.bind("<ButtonRelease-1>", self._finish)
+        self.bind("<Escape>", self._cancel)
+        self.focus_force()
+        self.grab_set()
+
+    def _start(self, event: tk.Event) -> None:
+        self.start_root = Point(event.x_root, event.y_root)
+        self.start_canvas = Point(event.x, event.y)
+        self.rect_id = self.canvas.create_rectangle(
+            event.x,
+            event.y,
+            event.x,
+            event.y,
+            outline="#45d6a3",
+            width=3,
+        )
+
+    def _drag(self, event: tk.Event) -> None:
+        if self.start_canvas is None or self.rect_id is None:
+            return
+        self.canvas.coords(self.rect_id, self.start_canvas.x, self.start_canvas.y, event.x, event.y)
+
+    def _finish(self, event: tk.Event) -> None:
+        if self.start_root is None:
+            self._complete(None)
+            return
+
+        left = min(self.start_root.x, event.x_root)
+        top = min(self.start_root.y, event.y_root)
+        right = max(self.start_root.x, event.x_root)
+        bottom = max(self.start_root.y, event.y_root)
+        width = right - left
+        height = bottom - top
+
+        if width < 5 or height < 5:
+            self._complete(None)
+            return
+
+        self._complete(Box(left, top, width, height))
+
+    def _cancel(self, _event: tk.Event | None = None) -> None:
+        self._complete(None)
+
+    def _complete(self, region: Box | None) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+        self.on_done(region)
+
+
+class PointCaptureOverlay(tk.Toplevel):
+    def __init__(self, parent: tk.Tk, on_done: Callable[[Point | None], None]) -> None:
+        super().__init__(parent)
+        self.on_done = on_done
+
+        width = parent.winfo_screenwidth()
+        height = parent.winfo_screenheight()
+        self.geometry(f"{width}x{height}+0+0")
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.22)
+        self.configure(bg="black")
+
+        self.canvas = tk.Canvas(self, bg="black", highlightthickness=0, cursor="crosshair")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.create_text(
+            width // 2,
+            32,
+            text="点击要自动点击的位置；按 Esc 取消",
+            fill="white",
+            font=("Microsoft YaHei UI", 15, "bold"),
+        )
+
+        self.canvas.bind("<ButtonPress-1>", self._capture)
+        self.bind("<Escape>", self._cancel)
+        self.focus_force()
+        self.grab_set()
+
+    def _capture(self, event: tk.Event) -> None:
+        self._complete(Point(event.x_root, event.y_root))
+
+    def _cancel(self, _event: tk.Event | None = None) -> None:
+        self._complete(None)
+
+    def _complete(self, point: Point | None) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+        self.on_done(point)
 
 
 class ScreenClickerApp(tk.Tk):
@@ -80,6 +203,9 @@ class ScreenClickerApp(tk.Tk):
         ):
             ttk.Label(region_frame, text=label).grid(row=0, column=index * 2, sticky="w")
             ttk.Entry(region_frame, textvariable=var, width=9).grid(row=0, column=index * 2 + 1, padx=(4, 14))
+        ttk.Button(region_frame, text="拖动选择区域", command=self._select_region).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(10, 0)
+        )
 
         settings_frame = ttk.LabelFrame(root, text="识别设置", padding=10)
         settings_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
@@ -104,6 +230,9 @@ class ScreenClickerApp(tk.Tk):
         ttk.Entry(click_frame, textvariable=self.click_x, width=10).grid(row=1, column=1, sticky="w", pady=(10, 0))
         ttk.Label(click_frame, text="Y / 偏移Y").grid(row=1, column=2, sticky="w", pady=(10, 0))
         ttk.Entry(click_frame, textvariable=self.click_y, width=10).grid(row=1, column=3, sticky="w", pady=(10, 0))
+        ttk.Button(click_frame, text="记录点击坐标", command=self._capture_click_point).grid(
+            row=1, column=4, sticky="w", padx=(16, 0), pady=(10, 0)
+        )
 
         option_frame = ttk.Frame(root)
         option_frame.grid(row=4, column=0, sticky="ew", pady=(10, 0))
@@ -147,6 +276,62 @@ class ScreenClickerApp(tk.Tk):
         )
         if filename:
             self.template_path.set(filename)
+
+    def _hide_for_overlay(self, callback: Callable[[], None]) -> None:
+        self.withdraw()
+        self.after(250, callback)
+
+    def _restore_after_overlay(self) -> None:
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _select_region(self) -> None:
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("正在监控", "请先停止监控，再重新选择区域。")
+            return
+
+        def open_overlay() -> None:
+            RegionSelectionOverlay(self, self._apply_selected_region)
+
+        self._hide_for_overlay(open_overlay)
+
+    def _apply_selected_region(self, region: Box | None) -> None:
+        self._restore_after_overlay()
+        if region is None:
+            self._log("已取消选择监控区域")
+            self.status_text.set("已取消选择区域")
+            return
+
+        self.region_x.set(str(region.x))
+        self.region_y.set(str(region.y))
+        self.region_w.set(str(region.width))
+        self.region_h.set(str(region.height))
+        self._log(f"已选择监控区域：x={region.x}, y={region.y}, 宽={region.width}, 高={region.height}")
+        self.status_text.set("已选择监控区域")
+
+    def _capture_click_point(self) -> None:
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("正在监控", "请先停止监控，再重新记录点击坐标。")
+            return
+
+        def open_overlay() -> None:
+            PointCaptureOverlay(self, self._apply_click_point)
+
+        self._hide_for_overlay(open_overlay)
+
+    def _apply_click_point(self, point: Point | None) -> None:
+        self._restore_after_overlay()
+        if point is None:
+            self._log("已取消记录点击坐标")
+            self.status_text.set("已取消记录坐标")
+            return
+
+        self.click_mode.set("absolute")
+        self.click_x.set(str(point.x))
+        self.click_y.set(str(point.y))
+        self._log(f"已记录点击坐标：({point.x},{point.y})")
+        self.status_text.set("已记录点击坐标")
 
     def _schedule_position_update(self) -> None:
         try:

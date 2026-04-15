@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import queue
+import os
 import threading
 import time
 import tkinter as tk
@@ -13,11 +14,11 @@ from typing import Callable, NamedTuple
 
 import pyautogui
 
-from screen_clicker import Box, MatchResult, Point, find_template, load_template, screenshot_region, should_click
+from screen_clicker import Box, MatchResult, Point, find_template, load_template, region_origin, screenshot_region, should_click
 
 
 class WatchConfig(NamedTuple):
-    region: Box
+    region: Box | None
     template: Path
     threshold: float
     interval: float
@@ -30,8 +31,20 @@ class WatchConfig(NamedTuple):
     once: bool
 
 
+def default_templates_dir() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA", Path.home()))
+        return base / "ScreenRegionClicker" / "templates"
+    return Path.home() / ".screen_region_clicker" / "templates"
+
+
 class RegionSelectionOverlay(tk.Toplevel):
-    def __init__(self, parent: tk.Tk, on_done: Callable[[Box | None], None]) -> None:
+    def __init__(
+        self,
+        parent: tk.Tk,
+        on_done: Callable[[Box | None], None],
+        prompt: str = "拖动选择区域，松开鼠标确认；按 Esc 取消",
+    ) -> None:
         super().__init__(parent)
         self.on_done = on_done
         self.start_root: Point | None = None
@@ -51,7 +64,7 @@ class RegionSelectionOverlay(tk.Toplevel):
         self.canvas.create_text(
             width // 2,
             32,
-            text="拖动选择监控区域，松开鼠标确认；按 Esc 取消",
+            text=prompt,
             fill="white",
             font=("Microsoft YaHei UI", 15, "bold"),
         )
@@ -128,7 +141,7 @@ class PointCaptureOverlay(tk.Toplevel):
         self.canvas.create_text(
             width // 2,
             32,
-            text="点击要自动点击的位置；按 Esc 取消",
+            text="点击备用固定坐标；按 Esc 取消",
             fill="white",
             font=("Microsoft YaHei UI", 15, "bold"),
         )
@@ -169,10 +182,11 @@ class ScreenClickerApp(tk.Tk):
         self.region_y = tk.StringVar(value="200")
         self.region_w = tk.StringVar(value="500")
         self.region_h = tk.StringVar(value="300")
+        self.full_screen_search = tk.BooleanVar(value=True)
         self.threshold = tk.StringVar(value="0.88")
         self.interval = tk.StringVar(value="0.25")
         self.cooldown = tk.StringVar(value="3")
-        self.click_mode = tk.StringVar(value="absolute")
+        self.click_mode = tk.StringVar(value="center")
         self.click_x = tk.StringVar(value="900")
         self.click_y = tk.StringVar(value="650")
         self.dry_run = tk.BooleanVar(value=True)
@@ -195,16 +209,26 @@ class ScreenClickerApp(tk.Tk):
         template_frame.columnconfigure(0, weight=1)
         ttk.Entry(template_frame, textvariable=self.template_path).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         ttk.Button(template_frame, text="选择图片", command=self._choose_template).grid(row=0, column=1)
+        ttk.Button(template_frame, text="截取目标样式", command=self._capture_template_from_screen).grid(
+            row=0, column=2, padx=(8, 0)
+        )
 
-        region_frame = ttk.LabelFrame(root, text="监控区域 X, Y, 宽, 高", padding=10)
+        region_frame = ttk.LabelFrame(root, text="搜索范围", padding=10)
         region_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        ttk.Checkbutton(
+            region_frame,
+            text="全屏搜索目标图片（推荐，窗口漂移也能找）",
+            variable=self.full_screen_search,
+        ).grid(row=0, column=0, columnspan=8, sticky="w")
         for index, (label, var) in enumerate(
             (("X", self.region_x), ("Y", self.region_y), ("宽", self.region_w), ("高", self.region_h))
         ):
-            ttk.Label(region_frame, text=label).grid(row=0, column=index * 2, sticky="w")
-            ttk.Entry(region_frame, textvariable=var, width=9).grid(row=0, column=index * 2 + 1, padx=(4, 14))
-        ttk.Button(region_frame, text="拖动选择区域", command=self._select_region).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(10, 0)
+            ttk.Label(region_frame, text=label).grid(row=1, column=index * 2, sticky="w", pady=(10, 0))
+            ttk.Entry(region_frame, textvariable=var, width=9).grid(
+                row=1, column=index * 2 + 1, padx=(4, 14), pady=(10, 0)
+            )
+        ttk.Button(region_frame, text="拖动限制搜索范围", command=self._select_region).grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(10, 0)
         )
 
         settings_frame = ttk.LabelFrame(root, text="识别设置", padding=10)
@@ -217,20 +241,20 @@ class ScreenClickerApp(tk.Tk):
 
         click_frame = ttk.LabelFrame(root, text="点击位置", padding=10)
         click_frame.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        ttk.Radiobutton(click_frame, text="绝对坐标", variable=self.click_mode, value="absolute").grid(
+        ttk.Radiobutton(click_frame, text="匹配图片中心（推荐）", variable=self.click_mode, value="center").grid(
             row=0, column=0, sticky="w"
         )
-        ttk.Radiobutton(click_frame, text="模板中心", variable=self.click_mode, value="center").grid(
+        ttk.Radiobutton(click_frame, text="图片内偏移", variable=self.click_mode, value="offset").grid(
             row=0, column=1, sticky="w", padx=(16, 0)
         )
-        ttk.Radiobutton(click_frame, text="模板偏移", variable=self.click_mode, value="offset").grid(
+        ttk.Radiobutton(click_frame, text="固定坐标（备用）", variable=self.click_mode, value="absolute").grid(
             row=0, column=2, sticky="w", padx=(16, 0)
         )
         ttk.Label(click_frame, text="X / 偏移X").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Entry(click_frame, textvariable=self.click_x, width=10).grid(row=1, column=1, sticky="w", pady=(10, 0))
         ttk.Label(click_frame, text="Y / 偏移Y").grid(row=1, column=2, sticky="w", pady=(10, 0))
         ttk.Entry(click_frame, textvariable=self.click_y, width=10).grid(row=1, column=3, sticky="w", pady=(10, 0))
-        ttk.Button(click_frame, text="记录点击坐标", command=self._capture_click_point).grid(
+        ttk.Button(click_frame, text="记录固定坐标", command=self._capture_click_point).grid(
             row=1, column=4, sticky="w", padx=(16, 0), pady=(10, 0)
         )
 
@@ -292,7 +316,11 @@ class ScreenClickerApp(tk.Tk):
             return
 
         def open_overlay() -> None:
-            RegionSelectionOverlay(self, self._apply_selected_region)
+            RegionSelectionOverlay(
+                self,
+                self._apply_selected_region,
+                prompt="拖动限制搜索范围，松开鼠标确认；按 Esc 取消",
+            )
 
         self._hide_for_overlay(open_overlay)
 
@@ -307,12 +335,54 @@ class ScreenClickerApp(tk.Tk):
         self.region_y.set(str(region.y))
         self.region_w.set(str(region.width))
         self.region_h.set(str(region.height))
-        self._log(f"已选择监控区域：x={region.x}, y={region.y}, 宽={region.width}, 高={region.height}")
-        self.status_text.set("已选择监控区域")
+        self.full_screen_search.set(False)
+        self._log(f"已限制搜索范围：x={region.x}, y={region.y}, 宽={region.width}, 高={region.height}")
+        self.status_text.set("已限制搜索范围")
+
+    def _capture_template_from_screen(self) -> None:
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("正在监控", "请先停止监控，再重新截取目标样式。")
+            return
+
+        def open_overlay() -> None:
+            RegionSelectionOverlay(
+                self,
+                self._save_template_region,
+                prompt="拖动框选要识别的按钮或界面样式，松开鼠标保存；按 Esc 取消",
+            )
+
+        self._hide_for_overlay(open_overlay)
+
+    def _save_template_region(self, region: Box | None) -> None:
+        if region is None:
+            self._restore_after_overlay()
+            self._log("已取消截取目标样式")
+            self.status_text.set("已取消截取目标样式")
+            return
+
+        def save() -> None:
+            try:
+                output_dir = default_templates_dir()
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output = output_dir / f"target_{time.strftime('%Y%m%d_%H%M%S')}.png"
+                image = pyautogui.screenshot(region=region)
+                image.save(output)
+                self.template_path.set(str(output))
+                self.click_mode.set("center")
+                self.full_screen_search.set(True)
+                self._log(f"已截取目标样式：{output}")
+                self.status_text.set("已截取目标样式")
+            except Exception as exc:
+                self._log(f"截取目标样式失败：{exc}")
+                self.status_text.set("截取目标样式失败")
+            finally:
+                self._restore_after_overlay()
+
+        self.after(150, save)
 
     def _capture_click_point(self) -> None:
         if self.worker and self.worker.is_alive():
-            messagebox.showinfo("正在监控", "请先停止监控，再重新记录点击坐标。")
+            messagebox.showinfo("正在监控", "请先停止监控，再重新记录固定坐标。")
             return
 
         def open_overlay() -> None:
@@ -323,15 +393,15 @@ class ScreenClickerApp(tk.Tk):
     def _apply_click_point(self, point: Point | None) -> None:
         self._restore_after_overlay()
         if point is None:
-            self._log("已取消记录点击坐标")
+            self._log("已取消记录固定坐标")
             self.status_text.set("已取消记录坐标")
             return
 
         self.click_mode.set("absolute")
         self.click_x.set(str(point.x))
         self.click_y.set(str(point.y))
-        self._log(f"已记录点击坐标：({point.x},{point.y})")
-        self.status_text.set("已记录点击坐标")
+        self._log(f"已记录固定坐标：({point.x},{point.y})")
+        self.status_text.set("已记录固定坐标")
 
     def _schedule_position_update(self) -> None:
         try:
@@ -372,14 +442,16 @@ class ScreenClickerApp(tk.Tk):
         if not template.is_file():
             raise ValueError("请选择有效的模板图片")
 
-        region = Box(
-            int(self.region_x.get()),
-            int(self.region_y.get()),
-            int(self.region_w.get()),
-            int(self.region_h.get()),
-        )
-        if region.width <= 0 or region.height <= 0:
-            raise ValueError("监控区域宽高必须大于 0")
+        region = None
+        if not self.full_screen_search.get():
+            region = Box(
+                int(self.region_x.get()),
+                int(self.region_y.get()),
+                int(self.region_w.get()),
+                int(self.region_h.get()),
+            )
+            if region.width <= 0 or region.height <= 0:
+                raise ValueError("搜索范围宽高必须大于 0")
 
         threshold = float(self.threshold.get())
         interval = float(self.interval.get())
@@ -408,16 +480,17 @@ class ScreenClickerApp(tk.Tk):
         )
 
     def _click_point(self, config: WatchConfig, match: MatchResult) -> Point:
+        origin = region_origin(config.region)
         if config.click_mode == "center":
             template_width, template_height = match.size
             return Point(
-                config.region.x + match.top_left.x + template_width // 2,
-                config.region.y + match.top_left.y + template_height // 2,
+                origin.x + match.top_left.x + template_width // 2,
+                origin.y + match.top_left.y + template_height // 2,
             )
         if config.click_mode == "offset":
             return Point(
-                config.region.x + match.top_left.x + config.click_x,
-                config.region.y + match.top_left.y + config.click_y,
+                origin.x + match.top_left.x + config.click_x,
+                origin.y + match.top_left.y + config.click_y,
             )
         return Point(config.click_x, config.click_y)
 
@@ -432,7 +505,8 @@ class ScreenClickerApp(tk.Tk):
             try:
                 template = load_template(config.template)
                 match = find_template(screenshot_region(config.region), template)
-                top_left = Point(config.region.x + match.top_left.x, config.region.y + match.top_left.y)
+                origin = region_origin(config.region)
+                top_left = Point(origin.x + match.top_left.x, origin.y + match.top_left.y)
                 self._log(f"测试匹配 score={match.score:.3f}，模板左上角=({top_left.x},{top_left.y})")
                 self._set_status(f"测试完成 score={match.score:.3f}")
             except Exception as exc:
@@ -470,8 +544,13 @@ class ScreenClickerApp(tk.Tk):
 
         try:
             template = load_template(config.template)
+            search_label = (
+                "全屏"
+                if config.region is None
+                else f"({config.region.x},{config.region.y},{config.region.width},{config.region.height})"
+            )
             self._log(
-                f"开始监控区域 ({config.region.x},{config.region.y},{config.region.width},{config.region.height})，"
+                f"开始搜索目标图片，范围={search_label}，"
                 f"阈值={config.threshold:.2f}"
             )
             while not self.stop_event.is_set():
@@ -481,7 +560,8 @@ class ScreenClickerApp(tk.Tk):
 
                 if should_click(matched, already_seen, config.repeat, last_click_at, config.cooldown):
                     click_point = self._click_point(config, match)
-                    top_left = Point(config.region.x + match.top_left.x, config.region.y + match.top_left.y)
+                    origin = region_origin(config.region)
+                    top_left = Point(origin.x + match.top_left.x, origin.y + match.top_left.y)
                     self._log(f"匹配成功 score={match.score:.3f}，模板左上角=({top_left.x},{top_left.y})")
                     if config.dry_run:
                         self._log("测试模式：不移动鼠标、不点击")

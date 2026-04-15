@@ -1,6 +1,6 @@
 # 屏幕区域识别点击脚本
 
-这个脚本会持续监控屏幕上的一个固定区域，当区域里出现指定模板图片时，把鼠标移动到指定位置并点击。
+这个脚本会持续在屏幕上搜索指定模板图片，匹配到目标样式后，把鼠标移动到匹配到的图片中心并点击。
 
 固定下载页：
 
@@ -11,7 +11,7 @@ https://songnotbird.github.io/mhxy_income_tracker/screen-clicker/
 适合场景：
 
 - 某个按钮、弹窗、确认界面出现后自动点一下
-- 只监控屏幕的一小块区域，减少误判和 CPU 占用
+- 默认全屏搜索目标图片；也可以手动框选一小块搜索范围，减少误判和 CPU 占用
 - 先 dry-run 看匹配分数，再启用真正点击
 
 ## 安装依赖
@@ -48,21 +48,13 @@ dist\ScreenRegionClicker.exe
 
 图形界面里不用手填坐标：
 
-- 点击 `拖动选择区域`，主窗口会临时隐藏；在目标界面上拖出要监控的区域，松开鼠标后自动填入 `X/Y/宽/高`
-- 点击 `记录点击坐标`，主窗口会临时隐藏；在目标位置点一下后自动填入点击坐标，并切换到 `绝对坐标`
-- 按 `Esc` 可以取消取区域或取坐标
+- 点击 `截取目标样式`，主窗口会临时隐藏；在目标按钮或界面元素上拖框，松开后自动保存模板图片
+- 默认勾选 `全屏搜索目标图片`，窗口位置漂移也能按图片样式找到目标
+- 默认点击 `匹配图片中心`，不依赖固定屏幕坐标
+- 如果误判，可以点击 `拖动限制搜索范围`，只在某一块区域里搜索图片样式
+- 按 `Esc` 可以取消截取目标样式、取搜索范围或取备用固定坐标
 
-## 1. 获取鼠标坐标
-
-把鼠标移动到你想点击的位置，查看坐标：
-
-```bash
-python screen_clicker.py pos
-```
-
-按 `Ctrl+C` 停止。
-
-## 2. 准备模板图片
+## 1. 准备目标样式图片
 
 先用系统截图工具截一小块目标界面，保存到 `templates/target.png`。模板最好只包含稳定的界面元素，例如按钮文字、弹窗标题、图标，不要包含会变化的数字、倒计时或动画。
 
@@ -78,15 +70,13 @@ python screen_clicker.py capture --region 100,200,500,300 --out templates/target
 X,Y,宽,高
 ```
 
-## 3. 先测试匹配，不点击
+## 2. 先测试匹配，不点击
 
-下面命令会监控 `100,200,500,300` 这块区域，发现 `templates/target.png` 后只打印匹配结果，不移动鼠标：
+下面命令会全屏搜索 `templates/target.png`，发现目标样式后只打印匹配结果，不移动鼠标：
 
 ```bash
 python screen_clicker.py watch \
-  --region 100,200,500,300 \
   --template templates/target.png \
-  --click 900,650 \
   --threshold 0.88 \
   --dry-run \
   --verbose
@@ -94,19 +84,17 @@ python screen_clicker.py watch \
 
 如果目标界面出现时 `score` 经常低于阈值，可以把 `--threshold` 降到 `0.82` 左右；如果误判，就提高到 `0.92` 左右。
 
-## 4. 正式运行并点击
+## 3. 正式运行并点击
 
 确认 dry-run 正常后，去掉 `--dry-run`：
 
 ```bash
 python screen_clicker.py watch \
-  --region 100,200,500,300 \
   --template templates/target.png \
-  --click 900,650 \
   --threshold 0.88
 ```
 
-默认行为：目标界面从没出现变成出现时，只点击一次。界面一直停留时不会反复点击。
+默认行为：全屏搜索目标图片，目标界面从没出现变成出现时，点击匹配到的图片中心一次。界面一直停留时不会反复点击。
 
 常用参数：
 
@@ -114,8 +102,10 @@ python screen_clicker.py watch \
 - `--repeat`：目标界面持续存在时，也按 `--cooldown` 重复点击
 - `--cooldown 5`：两次点击至少间隔 5 秒
 - `--pre-click-delay 0.5`：匹配成功后等 0.5 秒再点击
-- `--click-center`：点击匹配到的模板中心点
+- `--region 100,200,500,300`：只在指定范围里搜索目标图片；不填则全屏搜索
+- `--click-center`：点击匹配到的模板中心点，这是默认行为
 - `--click-offset 120,40`：点击模板左上角向右 120、向下 40 的位置
+- `--click 900,650`：备用的固定坐标点击，不建议窗口会漂移时使用
 
 急停方式：
 
@@ -124,20 +114,17 @@ python screen_clicker.py watch \
 
 ## 示例
 
-监控屏幕左上方一块区域，出现模板后点击绝对坐标 `900,650`：
+全屏搜索模板图片，出现后点击模板中心：
 
 ```bash
 python screen_clicker.py watch \
-  --region 100,200,500,300 \
-  --template templates/target.png \
-  --click 900,650
+  --template templates/target.png
 ```
 
-监控区域里出现模板后，点击模板中心：
+只在指定区域里搜索模板图片，出现后点击模板中心：
 
 ```bash
 python screen_clicker.py watch \
   --region 100,200,500,300 \
-  --template templates/target.png \
-  --click-center
+  --template templates/target.png
 ```

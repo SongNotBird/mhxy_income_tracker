@@ -85,7 +85,7 @@ def find_template(region_image: np.ndarray, template: np.ndarray) -> MatchResult
     image_height, image_width = gray.shape[:2]
 
     if template_width > image_width or template_height > image_height:
-        raise SystemExit("模板图片不能大于监控区域，请缩小模板或增大 --region")
+        raise ValueError("模板图片不能大于搜索范围，请缩小模板或增大搜索范围")
 
     result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
     _, max_score, _, max_location = cv2.minMaxLoc(result)
@@ -96,24 +96,35 @@ def find_template(region_image: np.ndarray, template: np.ndarray) -> MatchResult
     )
 
 
-def resolve_click_point(args: argparse.Namespace, region: Box, match: MatchResult) -> Point | None:
+def region_origin(region: Box | None) -> Point:
+    if region is None:
+        return Point(0, 0)
+    return Point(region.x, region.y)
+
+
+def resolve_click_point(args: argparse.Namespace, region: Box | None, match: MatchResult) -> Point | None:
+    origin = region_origin(region)
+
     if args.click is not None:
         return args.click
 
     if args.click_offset is not None:
         return Point(
-            region.x + match.top_left.x + args.click_offset.x,
-            region.y + match.top_left.y + args.click_offset.y,
+            origin.x + match.top_left.x + args.click_offset.x,
+            origin.y + match.top_left.y + args.click_offset.y,
         )
 
-    if args.click_center:
-        template_width, template_height = match.size
-        return Point(
-            region.x + match.top_left.x + template_width // 2,
-            region.y + match.top_left.y + template_height // 2,
-        )
+    template_width, template_height = match.size
+    return Point(
+        origin.x + match.top_left.x + template_width // 2,
+        origin.y + match.top_left.y + template_height // 2,
+    )
 
-    return None
+
+def format_region(region: Box | None) -> str:
+    if region is None:
+        return "全屏"
+    return f"x={region.x}, y={region.y}, w={region.width}, h={region.height}"
 
 
 def print_status(message: str) -> None:
@@ -163,19 +174,11 @@ def command_watch(args: argparse.Namespace) -> int:
     if args.interval <= 0 or args.cooldown < 0:
         raise SystemExit("--interval 必须大于 0，--cooldown 不能小于 0")
 
-    click_point_hint = resolve_click_point(
-        args,
-        region,
-        MatchResult(score=0.0, top_left=Point(0, 0), size=(template.shape[1], template.shape[0])),
-    )
-    if click_point_hint is None and not args.dry_run:
-        raise SystemExit("请指定 --click、--click-offset 或 --click-center 其中之一")
-
     pyautogui.PAUSE = 0
     pyautogui.FAILSAFE = not args.no_failsafe
 
     print_status(
-        f"开始监控区域 x={region.x}, y={region.y}, w={region.width}, h={region.height}；"
+        f"开始搜索范围 {format_region(region)}；"
         f"阈值={args.threshold:.2f}；按 Ctrl+C 停止"
     )
 
@@ -191,7 +194,8 @@ def command_watch(args: argparse.Namespace) -> int:
 
             if should_click(matched, already_seen, args.repeat, last_click_at, args.cooldown):
                 click_point = resolve_click_point(args, region, match)
-                top_left_abs = Point(region.x + match.top_left.x, region.y + match.top_left.y)
+                origin = region_origin(region)
+                top_left_abs = Point(origin.x + match.top_left.x, origin.y + match.top_left.y)
                 print_status(
                     f"匹配成功 score={match.score:.3f}，模板左上角=({top_left_abs.x},{top_left_abs.y})"
                 )
@@ -199,7 +203,6 @@ def command_watch(args: argparse.Namespace) -> int:
                 if args.dry_run:
                     print_status("dry-run 模式：不移动鼠标、不点击")
                 else:
-                    assert click_point is not None
                     if args.pre_click_delay > 0:
                         time.sleep(args.pre_click_delay)
                     pyautogui.moveTo(click_point.x, click_point.y, duration=args.move_duration)
@@ -222,6 +225,8 @@ def command_watch(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print_status("已停止")
         return 0
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def add_click_options(parser: argparse.ArgumentParser) -> None:
@@ -241,7 +246,7 @@ def add_click_options(parser: argparse.ArgumentParser) -> None:
     click_group.add_argument(
         "--click-center",
         action="store_true",
-        help="点击匹配到的模板中心点",
+        help="点击匹配到的模板中心点；这是默认行为",
     )
 
 
@@ -261,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     capture_parser.set_defaults(func=command_capture)
 
     watch_parser = subparsers.add_parser("watch", help="监控区域并在匹配时点击")
-    watch_parser.add_argument("--region", type=parse_box, required=True, help="监控区域：X,Y,W,H")
+    watch_parser.add_argument("--region", type=parse_box, help="搜索区域：X,Y,W,H；不填则全屏搜索")
     watch_parser.add_argument("--template", type=Path, required=True, help="目标界面的模板图片")
     watch_parser.add_argument("--threshold", type=float, default=0.88, help="匹配阈值，建议 0.80-0.95")
     watch_parser.add_argument("--interval", type=float, default=0.25, help="每次检测间隔秒数")

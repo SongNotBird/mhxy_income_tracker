@@ -98,7 +98,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           asset="$(find release -type f -name '*.exe' -print -quit)"
-          notes=$'屏幕区域自动点击工具的 Windows 单文件版本。\n\n下载后双击运行 ScreenRegionClicker.exe。默认关闭自动点击；先在“工作屏幕”里选择要监控的屏幕，再在该屏幕截图预览里截取目标样式并测试匹配。'
+          notes=$'屏幕区域自动点击工具的 Windows 单文件版本。\n\n下载后双击运行 ScreenRegionClicker.exe。默认关闭自动点击；先在“工作屏幕”里选择要监控的屏幕，再在该屏幕截图预览里截取目标样式并测试匹配。打开截图预览时主窗口不会隐藏。'
 
           if gh release view "$VERSION" --repo "$REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$VERSION" "$asset#ScreenRegionClicker.exe" --repo "$REPOSITORY" --clobber

@@ -427,13 +427,13 @@ class ScreenClickerApp(tk.Tk):
         if filename:
             self.template_path.set(filename)
 
-    def _hide_for_overlay(self, callback: Callable[[], None]) -> None:
-        self.withdraw()
-        self.after(250, callback)
+    def _open_preview_window(self, callback: Callable[[], None]) -> None:
+        self.after(50, callback)
 
     def _restore_after_overlay(self) -> None:
         self.active_overlay = None
-        self.deiconify()
+        if self.state() == "withdrawn":
+            self.deiconify()
         self.lift()
         self.focus_force()
 
@@ -461,7 +461,7 @@ class ScreenClickerApp(tk.Tk):
                 self._log(f"打开屏幕截图预览失败：{exc}")
                 messagebox.showerror("截图失败", str(exc))
 
-        self._hide_for_overlay(open_overlay)
+        self._open_preview_window(open_overlay)
 
     def _apply_selected_region(self, region: Box | None) -> None:
         self._restore_after_overlay()
@@ -502,7 +502,7 @@ class ScreenClickerApp(tk.Tk):
                 self._log(f"打开屏幕截图预览失败：{exc}")
                 messagebox.showerror("截图失败", str(exc))
 
-        self._hide_for_overlay(open_overlay)
+        self._open_preview_window(open_overlay)
 
     def _save_template_region(self, region: Box | None) -> None:
         if region is None:
@@ -550,7 +550,7 @@ class ScreenClickerApp(tk.Tk):
                 self._log(f"打开屏幕截图预览失败：{exc}")
                 messagebox.showerror("截图失败", str(exc))
 
-        self._hide_for_overlay(open_overlay)
+        self._open_preview_window(open_overlay)
 
     def _apply_click_point(self, point: Point | None) -> None:
         self._restore_after_overlay()

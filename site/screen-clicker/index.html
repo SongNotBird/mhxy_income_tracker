@@ -3,22 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>梦幻西游收益统计下载页</title>
+    <title>屏幕区域自动点击下载页</title>
     <meta
       name="description"
-      content="梦幻西游收益统计 Windows EXE 固定下载页"
+      content="屏幕区域自动点击 Windows EXE 固定下载页"
     />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="../styles.css" />
   </head>
   <body>
     <div class="backdrop"></div>
     <main class="page">
       <section class="hero">
-        <p class="eyebrow">MHXY Income Tracker</p>
-        <h1>梦幻西游收益统计</h1>
+        <p class="eyebrow">Screen Region Clicker</p>
+        <h1>屏幕区域自动点击</h1>
         <p class="hero-text">
-          固定下载页会自动读取当前仓库的最新 Release，并提供 Windows
-          单文件版 `exe` 下载。
+          固定下载页会自动读取当前仓库里对应工具的最新 Release，并提供 Windows
+          单文件版 exe 下载。
         </p>
         <div class="actions">
           <a id="download-link" class="button primary" href="#" aria-disabled="true">
@@ -60,19 +60,19 @@
       </section>
 
       <section class="panel help-panel">
-        <h2>更新方式</h2>
+        <h2>使用提示</h2>
         <ol>
-          <li>修改程序代码并推送到 GitHub 仓库。</li>
-          <li>在 GitHub Actions 里运行 `Release Windows EXE`，输入版本号，例如 `v1.0.0`。</li>
-          <li>新的 `exe` 会自动附加到 Release，这个固定下载页也会自动显示最新版。</li>
+          <li>下载 exe 后双击打开。</li>
+          <li>先选择模板图片，再填写监控区域和点击位置。</li>
+          <li>默认是测试模式，不会点击；确认识别分数正常后再取消测试模式。</li>
         </ol>
         <p id="status-message" class="status-message">正在连接 GitHub Release API...</p>
       </section>
     </main>
 
     <script>
-      window.releaseAssetPrefix = "MHXYIncomeTracker";
+      window.releaseAssetPrefix = "ScreenRegionClicker";
     </script>
-    <script src="./app.js"></script>
+    <script src="../app.js"></script>
   </body>
 </html>

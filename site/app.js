@@ -6,6 +6,7 @@ const assetListEl = document.getElementById("asset-list");
 const downloadLinkEl = document.getElementById("download-link");
 const releaseLinkEl = document.getElementById("release-link");
 const statusMessageEl = document.getElementById("status-message");
+const releaseAssetPrefix = window.releaseAssetPrefix || "";
 
 function detectRepository() {
   const host = window.location.hostname.toLowerCase();
@@ -77,6 +78,25 @@ function setPrimaryDownload(asset) {
   downloadLinkEl.removeAttribute("aria-disabled");
 }
 
+function isPreferredAsset(asset) {
+  const name = asset.name.toLowerCase();
+  if (releaseAssetPrefix) {
+    return name.startsWith(releaseAssetPrefix.toLowerCase()) && name.endsWith(".exe");
+  }
+  return name.endsWith(".exe");
+}
+
+function pickRelease(releases) {
+  for (const release of releases) {
+    const assets = Array.isArray(release.assets) ? release.assets : [];
+    const matchingAssets = assets.filter(isPreferredAsset);
+    if (matchingAssets.length) {
+      return { release, assets: matchingAssets };
+    }
+  }
+  return null;
+}
+
 async function loadLatestRelease() {
   const { owner, repo } = detectRepository();
 
@@ -94,7 +114,7 @@ async function loadLatestRelease() {
 
   const repoLabel = `${owner}/${repo}`;
   const releaseUrl = `https://github.com/${repoLabel}/releases`;
-  const apiUrl = `https://api.github.com/repos/${repoLabel}/releases/latest`;
+  const apiUrl = `https://api.github.com/repos/${repoLabel}/releases?per_page=30`;
 
   repoNameEl.textContent = repoLabel;
   releaseLinkEl.href = releaseUrl;
@@ -110,22 +130,28 @@ async function loadLatestRelease() {
       throw new Error(`GitHub API 返回 ${response.status}`);
     }
 
-    const release = await response.json();
-    const assets = Array.isArray(release.assets) ? release.assets : [];
-    const preferredAsset =
-      assets.find((asset) => asset.name.toLowerCase().endsWith(".exe")) || assets[0];
+    const releases = await response.json();
+    const selected = pickRelease(Array.isArray(releases) ? releases : []);
+
+    if (!selected) {
+      throw new Error("没有找到对应的 exe Release");
+    }
+
+    const { release, assets } = selected;
+    const preferredAsset = assets[0];
 
     versionNameEl.textContent = release.name || release.tag_name || "未命名版本";
     publishedAtEl.textContent = formatDate(release.published_at || release.created_at);
     releaseNotesEl.textContent = release.body || "这个版本没有填写说明。";
     renderAssets(assets);
     setPrimaryDownload(preferredAsset);
+    releaseLinkEl.href = release.html_url || releaseUrl;
     setStatus("已加载最新 Release。");
   } catch (error) {
     versionNameEl.textContent = "读取失败";
     publishedAtEl.textContent = "-";
     releaseNotesEl.textContent =
-      "还没有找到可用的 Release。请先在 GitHub Actions 里运行发布工作流，或者检查仓库是否已经创建过公开 Release。";
+      "还没有找到可用的 Release。请先等待 GitHub Actions 发布完成，或检查仓库是否已经创建过公开 Release。";
     renderAssets([]);
     setPrimaryDownload(null);
     setStatus(`读取失败：${error.message}`);

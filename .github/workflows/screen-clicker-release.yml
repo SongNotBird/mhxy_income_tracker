@@ -1,0 +1,108 @@
+name: Release Screen Clicker Windows EXE
+
+on:
+  push:
+    tags:
+      - "screen-clicker-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "发布版本号，例如 screen-clicker-v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ ! "$version" =~ ^screen-clicker-v[0-9]+(\.[0-9]+){1,2}([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "版本号格式不正确，请使用例如 screen-clicker-v1.0.0" >&2
+            exit 1
+          fi
+
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: windows-latest
+    needs: prepare
+    defaults:
+      run:
+        working-directory: screen_region_clicker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Build EXE
+        shell: bash
+        run: |
+          python -m PyInstaller --noconfirm --clean ScreenRegionClicker.spec
+
+      - name: Prepare release asset
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p release
+          cp "dist/ScreenRegionClicker.exe" "release/ScreenRegionClicker-${VERSION}-windows-x64.exe"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: screen-clicker-windows-exe
+          path: screen_region_clicker/release/
+
+  release:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: screen-clicker-windows-exe
+          path: release
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          asset="$(find release -type f -name '*.exe' -print -quit)"
+          notes=$'屏幕区域自动点击工具的 Windows 单文件版本。\n\n下载后双击运行 ScreenRegionClicker.exe。默认是测试模式，不会点击；确认识别分数正常后再取消测试模式。'
+
+          if gh release view "$VERSION" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$VERSION" "$asset#ScreenRegionClicker.exe" --repo "$REPOSITORY" --clobber
+            gh release edit "$VERSION" --repo "$REPOSITORY" --title "$VERSION" --notes "$notes"
+          else
+            gh release create "$VERSION" "$asset#ScreenRegionClicker.exe" --repo "$REPOSITORY" --title "$VERSION" --notes "$notes"
+          fi

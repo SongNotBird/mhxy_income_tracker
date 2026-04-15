@@ -7,7 +7,5 @@ __pycache__/
 venv/
 build/
 dist/
-*.spec
-!screen_region_clicker/*.spec
-output/
-ui_preview*.png
+release/
+*.log

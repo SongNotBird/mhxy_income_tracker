@@ -148,7 +148,7 @@ class RegionSelectionOverlay:
             canvas.bind("<B1-Motion>", self._drag)
             canvas.bind("<ButtonRelease-1>", self._finish)
             window.bind("<Escape>", self._cancel)
-            self.windows.append((window, canvas, bounds))
+            self.windows.append((window, canvas, monitor))
 
         if not self.windows:
             self._complete(None)

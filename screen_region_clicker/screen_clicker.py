@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, NamedTuple
 
+from screen_geometry import Box, Point
+
 
 def enable_dpi_awareness() -> None:
     if os.name != "nt":
@@ -37,9 +39,10 @@ enable_dpi_awareness()
 
 try:
     import cv2
+    import mss
     import numpy as np
     import pyautogui
-    from PIL import ImageGrab
+    from PIL import Image, ImageGrab
 except ModuleNotFoundError as exc:
     print(
         "缺少依赖，请先运行：\n"
@@ -50,18 +53,6 @@ except ModuleNotFoundError as exc:
         file=sys.stderr,
     )
     raise SystemExit(1) from exc
-
-
-class Box(NamedTuple):
-    x: int
-    y: int
-    width: int
-    height: int
-
-
-class Point(NamedTuple):
-    x: int
-    y: int
 
 
 class MatchResult(NamedTuple):
@@ -129,6 +120,19 @@ def click_at(point: Point, button: str = "left", move_duration: float = 0.0) -> 
 def virtual_screen_bounds() -> Box:
     if os.name == "nt":
         try:
+            with mss.mss() as screenshotter:
+                monitor = screenshotter.monitors[0]
+            return Box(
+                int(monitor["left"]),
+                int(monitor["top"]),
+                int(monitor["width"]),
+                int(monitor["height"]),
+            )
+        except Exception:
+            pass
+
+    if os.name == "nt":
+        try:
             import ctypes
 
             user32 = ctypes.windll.user32
@@ -148,6 +152,22 @@ def virtual_screen_bounds() -> Box:
 def monitor_bounds() -> list[Box]:
     if os.name != "nt":
         return [virtual_screen_bounds()]
+
+    try:
+        with mss.mss() as screenshotter:
+            monitors = [
+                Box(
+                    int(monitor["left"]),
+                    int(monitor["top"]),
+                    int(monitor["width"]),
+                    int(monitor["height"]),
+                )
+                for monitor in screenshotter.monitors[1:]
+            ]
+        if monitors:
+            return monitors
+    except Exception:
+        pass
 
     try:
         import ctypes
@@ -215,6 +235,22 @@ def parse_point(value: str) -> Point:
 
 def screenshot_image(region: Box | None):
     if os.name == "nt":
+        try:
+            with mss.mss() as screenshotter:
+                if region is None:
+                    monitor = screenshotter.monitors[0]
+                else:
+                    monitor = {
+                        "left": int(region.x),
+                        "top": int(region.y),
+                        "width": int(region.width),
+                        "height": int(region.height),
+                    }
+                raw = screenshotter.grab(monitor)
+                return Image.frombytes("RGB", raw.size, raw.rgb)
+        except Exception:
+            pass
+
         bbox = None
         if region is not None:
             bbox = (region.x, region.y, region.x + region.width, region.y + region.height)

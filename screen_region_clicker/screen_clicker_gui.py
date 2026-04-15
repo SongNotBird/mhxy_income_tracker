@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import queue
-import ctypes
 import os
 import threading
 import time
@@ -26,11 +25,20 @@ from screen_clicker import (
     screenshot_region,
     should_click,
 )
+from screen_geometry import (
+    box_within,
+    clamp_preview_point,
+    fitted_preview_size,
+    format_monitor_label,
+    preview_to_screen_box,
+    preview_to_screen_point,
+)
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import pyautogui
+from PIL import Image, ImageTk
 
 
 class WatchConfig(NamedTuple):
@@ -55,60 +63,10 @@ def default_templates_dir() -> Path:
     return Path.home() / ".screen_region_clicker" / "templates"
 
 
-def format_monitor_label(index: int, bounds: Box) -> str:
-    return f"屏幕 {index + 1} ({bounds.width}x{bounds.height}, X={bounds.x}, Y={bounds.y})"
-
-
-def clamp_point_to_bounds(point: Point, bounds: Box) -> Point:
-    return Point(
-        min(max(point.x, bounds.x), bounds.x + bounds.width),
-        min(max(point.y, bounds.y), bounds.y + bounds.height),
-    )
-
-
-def box_within(inner: Box, outer: Box) -> bool:
+def monitor_preview_limits(parent: tk.Tk) -> tuple[int, int]:
     return (
-        inner.x >= outer.x
-        and inner.y >= outer.y
-        and inner.x + inner.width <= outer.x + outer.width
-        and inner.y + inner.height <= outer.y + outer.height
-    )
-
-
-def place_overlay_window(window: tk.Toplevel, bounds: Box) -> None:
-    window.geometry(f"{bounds.width}x{bounds.height}+0+0")
-    window.update_idletasks()
-
-    if os.name != "nt":
-        return
-
-    try:
-        hwnd_topmost = -1
-        swp_showwindow = 0x0040
-        ctypes.windll.user32.SetWindowPos(
-            window.winfo_id(),
-            hwnd_topmost,
-            bounds.x,
-            bounds.y,
-            bounds.width,
-            bounds.height,
-            swp_showwindow,
-        )
-    except Exception:
-        pass
-
-
-def canvas_point(root_point: Point, bounds: Box) -> Point:
-    return Point(root_point.x - bounds.x, root_point.y - bounds.y)
-
-
-def draw_overlay_prompt(canvas: tk.Canvas, bounds: Box, prompt: str) -> None:
-    canvas.create_text(
-        bounds.width // 2,
-        32,
-        text=prompt,
-        fill="white",
-        font=("Microsoft YaHei UI", 15, "bold"),
+        max(320, min(1200, parent.winfo_screenwidth() - 120)),
+        max(240, min(760, parent.winfo_screenheight() - 180)),
     )
 
 
@@ -122,86 +80,84 @@ class RegionSelectionOverlay:
     ) -> None:
         self.parent = parent
         self.on_done = on_done
-        self.windows: list[tuple[tk.Toplevel, tk.Canvas, Box]] = []
-        self.active_window: tk.Toplevel | None = None
         self.active_canvas: tk.Canvas | None = None
-        self.active_bounds: Box | None = None
-        self.start_root: Point | None = None
-        self.start_canvas: Point | None = None
+        self.bounds = bounds or monitor_bounds()[0]
+        self.start_preview: Point | None = None
         self.rect_id: int | None = None
         self.completed = False
+        source_image = screenshot_image(self.bounds)
+        self.preview_size = fitted_preview_size(source_image.size, monitor_preview_limits(parent))
+        preview_image = source_image.resize(self.preview_size, Image.Resampling.LANCZOS)
 
-        overlay_bounds = [bounds] if bounds is not None else monitor_bounds()
-        for monitor in overlay_bounds:
-            window = tk.Toplevel(parent)
-            window.overrideredirect(True)
-            window.attributes("-topmost", True)
-            window.attributes("-alpha", 0.32)
-            window.configure(bg="black")
-            place_overlay_window(window, monitor)
+        self.window = tk.Toplevel(parent)
+        self.window.title("在所选屏幕截图中拖框")
+        self.window.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.window.bind("<Escape>", self._cancel)
 
-            canvas = tk.Canvas(window, bg="black", highlightthickness=0, cursor="crosshair")
-            canvas.pack(fill=tk.BOTH, expand=True)
-            draw_overlay_prompt(canvas, monitor, prompt)
+        ttk.Label(
+            self.window,
+            text=(
+                f"{prompt}\n"
+                f"所选屏幕：{self.bounds.width}x{self.bounds.height}, X={self.bounds.x}, Y={self.bounds.y}"
+            ),
+            justify=tk.LEFT,
+        ).pack(anchor="w", padx=10, pady=(10, 6))
 
-            canvas.bind("<ButtonPress-1>", lambda event, item=(window, canvas, monitor): self._start(event, item))
-            canvas.bind("<B1-Motion>", self._drag)
-            canvas.bind("<ButtonRelease-1>", self._finish)
-            window.bind("<Escape>", self._cancel)
-            self.windows.append((window, canvas, monitor))
+        self.photo = ImageTk.PhotoImage(preview_image)
+        self.active_canvas = tk.Canvas(
+            self.window,
+            width=self.preview_size[0],
+            height=self.preview_size[1],
+            highlightthickness=1,
+            highlightbackground="#666666",
+            cursor="crosshair",
+        )
+        self.active_canvas.pack(padx=10, pady=(0, 10))
+        self.active_canvas.create_image(0, 0, image=self.photo, anchor=tk.NW)
+        self.active_canvas.bind("<ButtonPress-1>", self._start)
+        self.active_canvas.bind("<B1-Motion>", self._drag)
+        self.active_canvas.bind("<ButtonRelease-1>", self._finish)
 
-        if not self.windows:
-            self._complete(None)
+        button_row = ttk.Frame(self.window)
+        button_row.pack(fill=tk.X, padx=10, pady=(0, 10))
+        ttk.Button(button_row, text="取消", command=self._cancel).pack(side=tk.RIGHT)
+
+        self.window.transient(parent)
+        self.window.grab_set()
+        self.window.focus_force()
+
+    def _start(self, event: tk.Event) -> None:
+        if self.active_canvas is None:
             return
-
-        self.windows[0][0].focus_force()
-
-    def _start(self, _event: tk.Event, item: tuple[tk.Toplevel, tk.Canvas, Box]) -> None:
-        self.active_window, self.active_canvas, self.active_bounds = item
-        self.start_root = cursor_position()
-        self.start_canvas = canvas_point(self.start_root, self.active_bounds)
+        self.start_preview = clamp_preview_point(Point(event.x, event.y), self.preview_size)
         self.rect_id = self.active_canvas.create_rectangle(
-            self.start_canvas.x,
-            self.start_canvas.y,
-            self.start_canvas.x,
-            self.start_canvas.y,
+            self.start_preview.x,
+            self.start_preview.y,
+            self.start_preview.x,
+            self.start_preview.y,
             outline="#45d6a3",
             width=3,
         )
-        try:
-            self.active_window.grab_set_global()
-        except tk.TclError:
-            try:
-                self.active_window.grab_set()
-            except tk.TclError:
-                pass
 
-    def _drag(self, _event: tk.Event) -> None:
-        if self.start_canvas is None or self.rect_id is None or self.active_canvas is None or self.active_bounds is None:
+    def _drag(self, event: tk.Event) -> None:
+        if self.start_preview is None or self.rect_id is None or self.active_canvas is None:
             return
-        current = canvas_point(clamp_point_to_bounds(cursor_position(), self.active_bounds), self.active_bounds)
-        self.active_canvas.coords(self.rect_id, self.start_canvas.x, self.start_canvas.y, current.x, current.y)
+        current = clamp_preview_point(Point(event.x, event.y), self.preview_size)
+        self.active_canvas.coords(self.rect_id, self.start_preview.x, self.start_preview.y, current.x, current.y)
 
-    def _finish(self, _event: tk.Event) -> None:
-        if self.start_root is None:
+    def _finish(self, event: tk.Event) -> None:
+        if self.start_preview is None:
             self._complete(None)
             return
 
-        end_root = cursor_position()
-        if self.active_bounds is not None:
-            end_root = clamp_point_to_bounds(end_root, self.active_bounds)
-        left = min(self.start_root.x, end_root.x)
-        top = min(self.start_root.y, end_root.y)
-        right = max(self.start_root.x, end_root.x)
-        bottom = max(self.start_root.y, end_root.y)
-        width = right - left
-        height = bottom - top
+        end_preview = clamp_preview_point(Point(event.x, event.y), self.preview_size)
+        region = preview_to_screen_box(self.start_preview, end_preview, self.bounds, self.preview_size)
 
-        if width < 5 or height < 5:
+        if region.width < 5 or region.height < 5:
             self._complete(None)
             return
 
-        self._complete(Box(left, top, width, height))
+        self._complete(region)
 
     def _cancel(self, _event: tk.Event | None = None) -> None:
         self._complete(None)
@@ -212,50 +168,64 @@ class RegionSelectionOverlay:
         self.completed = True
 
         try:
-            if self.active_window is not None:
-                self.active_window.grab_release()
+            self.window.grab_release()
         except tk.TclError:
             pass
 
-        for window, _canvas, _bounds in self.windows:
-            try:
-                window.destroy()
-            except tk.TclError:
-                pass
+        try:
+            self.window.destroy()
+        except tk.TclError:
+            pass
         self.on_done(region)
 
 
 class PointCaptureOverlay:
     def __init__(self, parent: tk.Tk, on_done: Callable[[Point | None], None], bounds: Box | None = None) -> None:
         self.on_done = on_done
-        self.windows: list[tk.Toplevel] = []
+        self.bounds = bounds or monitor_bounds()[0]
         self.completed = False
+        source_image = screenshot_image(self.bounds)
+        self.preview_size = fitted_preview_size(source_image.size, monitor_preview_limits(parent))
+        preview_image = source_image.resize(self.preview_size, Image.Resampling.LANCZOS)
 
-        overlay_bounds = [bounds] if bounds is not None else monitor_bounds()
-        for monitor in overlay_bounds:
-            window = tk.Toplevel(parent)
-            window.overrideredirect(True)
-            window.attributes("-topmost", True)
-            window.attributes("-alpha", 0.22)
-            window.configure(bg="black")
-            place_overlay_window(window, monitor)
+        self.window = tk.Toplevel(parent)
+        self.window.title("在所选屏幕截图中点坐标")
+        self.window.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.window.bind("<Escape>", self._cancel)
 
-            canvas = tk.Canvas(window, bg="black", highlightthickness=0, cursor="crosshair")
-            canvas.pack(fill=tk.BOTH, expand=True)
-            draw_overlay_prompt(canvas, monitor, "点击备用固定坐标；按 Esc 取消")
+        ttk.Label(
+            self.window,
+            text=(
+                "点击备用固定坐标；按 Esc 取消\n"
+                f"所选屏幕：{self.bounds.width}x{self.bounds.height}, X={self.bounds.x}, Y={self.bounds.y}"
+            ),
+            justify=tk.LEFT,
+        ).pack(anchor="w", padx=10, pady=(10, 6))
 
-            canvas.bind("<ButtonPress-1>", lambda event, item=monitor: self._capture(event, item))
-            window.bind("<Escape>", self._cancel)
-            self.windows.append(window)
+        self.photo = ImageTk.PhotoImage(preview_image)
+        self.canvas = tk.Canvas(
+            self.window,
+            width=self.preview_size[0],
+            height=self.preview_size[1],
+            highlightthickness=1,
+            highlightbackground="#666666",
+            cursor="crosshair",
+        )
+        self.canvas.pack(padx=10, pady=(0, 10))
+        self.canvas.create_image(0, 0, image=self.photo, anchor=tk.NW)
+        self.canvas.bind("<ButtonPress-1>", self._capture)
 
-        if not self.windows:
-            self._complete(None)
-            return
+        button_row = ttk.Frame(self.window)
+        button_row.pack(fill=tk.X, padx=10, pady=(0, 10))
+        ttk.Button(button_row, text="取消", command=self._cancel).pack(side=tk.RIGHT)
 
-        self.windows[0].focus_force()
+        self.window.transient(parent)
+        self.window.grab_set()
+        self.window.focus_force()
 
-    def _capture(self, _event: tk.Event, bounds: Box) -> None:
-        self._complete(clamp_point_to_bounds(cursor_position(), bounds))
+    def _capture(self, event: tk.Event) -> None:
+        point = preview_to_screen_point(Point(event.x, event.y), self.bounds, self.preview_size)
+        self._complete(point)
 
     def _cancel(self, _event: tk.Event | None = None) -> None:
         self._complete(None)
@@ -265,11 +235,15 @@ class PointCaptureOverlay:
             return
         self.completed = True
 
-        for window in self.windows:
-            try:
-                window.destroy()
-            except tk.TclError:
-                pass
+        try:
+            self.window.grab_release()
+        except tk.TclError:
+            pass
+
+        try:
+            self.window.destroy()
+        except tk.TclError:
+            pass
         self.on_done(point)
 
 
@@ -475,12 +449,17 @@ class ScreenClickerApp(tk.Tk):
             return
 
         def open_overlay() -> None:
-            self.active_overlay = RegionSelectionOverlay(
-                self,
-                self._apply_selected_region,
-                prompt="拖动限制搜索范围，松开鼠标确认；按 Esc 取消",
-                bounds=bounds,
-            )
+            try:
+                self.active_overlay = RegionSelectionOverlay(
+                    self,
+                    self._apply_selected_region,
+                    prompt="拖动限制搜索范围，松开鼠标确认；按 Esc 取消",
+                    bounds=bounds,
+                )
+            except Exception as exc:
+                self._restore_after_overlay()
+                self._log(f"打开屏幕截图预览失败：{exc}")
+                messagebox.showerror("截图失败", str(exc))
 
         self._hide_for_overlay(open_overlay)
 
@@ -511,12 +490,17 @@ class ScreenClickerApp(tk.Tk):
             return
 
         def open_overlay() -> None:
-            self.active_overlay = RegionSelectionOverlay(
-                self,
-                self._save_template_region,
-                prompt="拖动框选要识别的按钮或界面样式，松开鼠标保存；按 Esc 取消",
-                bounds=bounds,
-            )
+            try:
+                self.active_overlay = RegionSelectionOverlay(
+                    self,
+                    self._save_template_region,
+                    prompt="拖动框选要识别的按钮或界面样式，松开鼠标保存；按 Esc 取消",
+                    bounds=bounds,
+                )
+            except Exception as exc:
+                self._restore_after_overlay()
+                self._log(f"打开屏幕截图预览失败：{exc}")
+                messagebox.showerror("截图失败", str(exc))
 
         self._hide_for_overlay(open_overlay)
 
@@ -559,7 +543,12 @@ class ScreenClickerApp(tk.Tk):
             return
 
         def open_overlay() -> None:
-            self.active_overlay = PointCaptureOverlay(self, self._apply_click_point, bounds=bounds)
+            try:
+                self.active_overlay = PointCaptureOverlay(self, self._apply_click_point, bounds=bounds)
+            except Exception as exc:
+                self._restore_after_overlay()
+                self._log(f"打开屏幕截图预览失败：{exc}")
+                messagebox.showerror("截图失败", str(exc))
 
         self._hide_for_overlay(open_overlay)
 

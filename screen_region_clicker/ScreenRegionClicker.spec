@@ -7,6 +7,7 @@ hiddenimports = []
 hiddenimports += collect_submodules("cv2")
 hiddenimports += collect_submodules("pyautogui")
 hiddenimports += collect_submodules("PIL")
+hiddenimports += collect_submodules("mss")
 
 a = Analysis(
     ["screen_clicker_gui.py"],

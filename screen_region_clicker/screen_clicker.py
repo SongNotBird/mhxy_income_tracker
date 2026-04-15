@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from datetime import datetime
@@ -14,6 +15,7 @@ try:
     import cv2
     import numpy as np
     import pyautogui
+    from PIL import ImageGrab
 except ModuleNotFoundError as exc:
     print(
         "缺少依赖，请先运行：\n"
@@ -44,6 +46,85 @@ class MatchResult(NamedTuple):
     size: tuple[int, int]
 
 
+def enable_dpi_awareness() -> None:
+    if os.name != "nt":
+        return
+
+    try:
+        import ctypes
+
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+def virtual_screen_bounds() -> Box:
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            left = user32.GetSystemMetrics(76)
+            top = user32.GetSystemMetrics(77)
+            width = user32.GetSystemMetrics(78)
+            height = user32.GetSystemMetrics(79)
+            if width > 0 and height > 0:
+                return Box(left, top, width, height)
+        except Exception:
+            pass
+
+    screen_size = pyautogui.size()
+    return Box(0, 0, int(screen_size.width), int(screen_size.height))
+
+
+def monitor_bounds() -> list[Box]:
+    if os.name != "nt":
+        return [virtual_screen_bounds()]
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        monitors: list[Box] = []
+        lparam_type = getattr(wintypes, "LPARAM", ctypes.c_longlong)
+        monitor_enum_proc = ctypes.WINFUNCTYPE(
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(wintypes.RECT),
+            lparam_type,
+        )
+
+        def collect_monitor(
+            _monitor: ctypes.c_void_p,
+            _hdc: ctypes.c_void_p,
+            rect_pointer: ctypes.POINTER(wintypes.RECT),
+            _data: int,
+        ) -> int:
+            rect = rect_pointer.contents
+            monitors.append(
+                Box(
+                    int(rect.left),
+                    int(rect.top),
+                    int(rect.right - rect.left),
+                    int(rect.bottom - rect.top),
+                )
+            )
+            return 1
+
+        callback = monitor_enum_proc(collect_monitor)
+        ctypes.windll.user32.EnumDisplayMonitors(0, 0, callback, 0)
+        if monitors:
+            return monitors
+    except Exception:
+        pass
+
+    return [virtual_screen_bounds()]
+
+
 def parse_ints(value: str, expected: int, label: str) -> tuple[int, ...]:
     try:
         parts = tuple(int(item.strip()) for item in value.split(","))
@@ -67,8 +148,22 @@ def parse_point(value: str) -> Point:
     return Point(x, y)
 
 
+def screenshot_image(region: Box | None):
+    if os.name == "nt":
+        bbox = None
+        if region is not None:
+            bbox = (region.x, region.y, region.x + region.width, region.y + region.height)
+
+        try:
+            return ImageGrab.grab(bbox=bbox, all_screens=True).convert("RGB")
+        except Exception:
+            pass
+
+    return pyautogui.screenshot(region=region).convert("RGB")
+
+
 def screenshot_region(region: Box | None) -> np.ndarray:
-    screenshot = pyautogui.screenshot(region=region)
+    screenshot = screenshot_image(region)
     return np.asarray(screenshot)
 
 
@@ -98,7 +193,8 @@ def find_template(region_image: np.ndarray, template: np.ndarray) -> MatchResult
 
 def region_origin(region: Box | None) -> Point:
     if region is None:
-        return Point(0, 0)
+        bounds = virtual_screen_bounds()
+        return Point(bounds.x, bounds.y)
     return Point(region.x, region.y)
 
 
@@ -150,7 +246,7 @@ def command_capture(args: argparse.Namespace) -> int:
     output = args.out.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    image = pyautogui.screenshot(region=region)
+    image = screenshot_image(region)
     image.save(output)
     print(f"已保存：{output}")
     print(f"图片尺寸：{image.size[0]}x{image.size[1]}")
@@ -287,6 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
+    enable_dpi_awareness()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

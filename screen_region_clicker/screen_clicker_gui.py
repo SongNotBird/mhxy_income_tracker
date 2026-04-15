@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import queue
+import ctypes
 import os
 import threading
 import time
@@ -14,7 +15,20 @@ from typing import Callable, NamedTuple
 
 import pyautogui
 
-from screen_clicker import Box, MatchResult, Point, find_template, load_template, region_origin, screenshot_region, should_click
+from screen_clicker import (
+    Box,
+    MatchResult,
+    Point,
+    enable_dpi_awareness,
+    find_template,
+    load_template,
+    monitor_bounds,
+    region_origin,
+    screenshot_image,
+    screenshot_region,
+    should_click,
+    virtual_screen_bounds,
+)
 
 
 class WatchConfig(NamedTuple):
@@ -38,6 +52,44 @@ def default_templates_dir() -> Path:
     return Path.home() / ".screen_region_clicker" / "templates"
 
 
+def place_overlay_window(window: tk.Toplevel, bounds: Box) -> None:
+    window.geometry(f"{bounds.width}x{bounds.height}+0+0")
+    window.update_idletasks()
+
+    if os.name != "nt":
+        return
+
+    try:
+        hwnd_topmost = -1
+        swp_showwindow = 0x0040
+        ctypes.windll.user32.SetWindowPos(
+            window.winfo_id(),
+            hwnd_topmost,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height,
+            swp_showwindow,
+        )
+    except Exception:
+        pass
+
+
+def canvas_point(root_point: Point, bounds: Box) -> Point:
+    return Point(root_point.x - bounds.x, root_point.y - bounds.y)
+
+
+def draw_overlay_prompt(canvas: tk.Canvas, bounds: Box, prompt: str) -> None:
+    for monitor in monitor_bounds():
+        canvas.create_text(
+            monitor.x - bounds.x + monitor.width // 2,
+            monitor.y - bounds.y + 32,
+            text=prompt,
+            fill="white",
+            font=("Microsoft YaHei UI", 15, "bold"),
+        )
+
+
 class RegionSelectionOverlay(tk.Toplevel):
     def __init__(
         self,
@@ -50,24 +102,17 @@ class RegionSelectionOverlay(tk.Toplevel):
         self.start_root: Point | None = None
         self.start_canvas: Point | None = None
         self.rect_id: int | None = None
+        self.bounds = virtual_screen_bounds()
 
-        width = parent.winfo_screenwidth()
-        height = parent.winfo_screenheight()
-        self.geometry(f"{width}x{height}+0+0")
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.attributes("-alpha", 0.32)
         self.configure(bg="black")
+        place_overlay_window(self, self.bounds)
 
         self.canvas = tk.Canvas(self, bg="black", highlightthickness=0, cursor="crosshair")
         self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.create_text(
-            width // 2,
-            32,
-            text=prompt,
-            fill="white",
-            font=("Microsoft YaHei UI", 15, "bold"),
-        )
+        draw_overlay_prompt(self.canvas, self.bounds, prompt)
 
         self.canvas.bind("<ButtonPress-1>", self._start)
         self.canvas.bind("<B1-Motion>", self._drag)
@@ -78,12 +123,12 @@ class RegionSelectionOverlay(tk.Toplevel):
 
     def _start(self, event: tk.Event) -> None:
         self.start_root = Point(event.x_root, event.y_root)
-        self.start_canvas = Point(event.x, event.y)
+        self.start_canvas = canvas_point(self.start_root, self.bounds)
         self.rect_id = self.canvas.create_rectangle(
-            event.x,
-            event.y,
-            event.x,
-            event.y,
+            self.start_canvas.x,
+            self.start_canvas.y,
+            self.start_canvas.x,
+            self.start_canvas.y,
             outline="#45d6a3",
             width=3,
         )
@@ -91,7 +136,8 @@ class RegionSelectionOverlay(tk.Toplevel):
     def _drag(self, event: tk.Event) -> None:
         if self.start_canvas is None or self.rect_id is None:
             return
-        self.canvas.coords(self.rect_id, self.start_canvas.x, self.start_canvas.y, event.x, event.y)
+        current = canvas_point(Point(event.x_root, event.y_root), self.bounds)
+        self.canvas.coords(self.rect_id, self.start_canvas.x, self.start_canvas.y, current.x, current.y)
 
     def _finish(self, event: tk.Event) -> None:
         if self.start_root is None:
@@ -127,24 +173,17 @@ class PointCaptureOverlay(tk.Toplevel):
     def __init__(self, parent: tk.Tk, on_done: Callable[[Point | None], None]) -> None:
         super().__init__(parent)
         self.on_done = on_done
+        self.bounds = virtual_screen_bounds()
 
-        width = parent.winfo_screenwidth()
-        height = parent.winfo_screenheight()
-        self.geometry(f"{width}x{height}+0+0")
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.attributes("-alpha", 0.22)
         self.configure(bg="black")
+        place_overlay_window(self, self.bounds)
 
         self.canvas = tk.Canvas(self, bg="black", highlightthickness=0, cursor="crosshair")
         self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.create_text(
-            width // 2,
-            32,
-            text="点击备用固定坐标；按 Esc 取消",
-            fill="white",
-            font=("Microsoft YaHei UI", 15, "bold"),
-        )
+        draw_overlay_prompt(self.canvas, self.bounds, "点击备用固定坐标；按 Esc 取消")
 
         self.canvas.bind("<ButtonPress-1>", self._capture)
         self.bind("<Escape>", self._cancel)
@@ -365,7 +404,7 @@ class ScreenClickerApp(tk.Tk):
                 output_dir = default_templates_dir()
                 output_dir.mkdir(parents=True, exist_ok=True)
                 output = output_dir / f"target_{time.strftime('%Y%m%d_%H%M%S')}.png"
-                image = pyautogui.screenshot(region=region)
+                image = screenshot_image(region)
                 image.save(output)
                 self.template_path.set(str(output))
                 self.click_mode.set("center")
@@ -593,6 +632,7 @@ class ScreenClickerApp(tk.Tk):
 
 
 def main() -> int:
+    enable_dpi_awareness()
     app = ScreenClickerApp()
     app.mainloop()
     return 0

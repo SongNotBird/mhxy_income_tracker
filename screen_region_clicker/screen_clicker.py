@@ -11,6 +11,30 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, NamedTuple
 
+
+def enable_dpi_awareness() -> None:
+    if os.name != "nt":
+        return
+
+    try:
+        import ctypes
+
+        try:
+            if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+                return
+        except Exception:
+            pass
+
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+enable_dpi_awareness()
+
 try:
     import cv2
     import numpy as np
@@ -46,19 +70,60 @@ class MatchResult(NamedTuple):
     size: tuple[int, int]
 
 
-def enable_dpi_awareness() -> None:
-    if os.name != "nt":
-        return
-
-    try:
-        import ctypes
-
+def cursor_position() -> Point:
+    if os.name == "nt":
         try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            import ctypes
+            from ctypes import wintypes
+
+            point = wintypes.POINT()
+            if ctypes.windll.user32.GetCursorPos(ctypes.byref(point)):
+                return Point(int(point.x), int(point.y))
         except Exception:
-            ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
+            pass
+
+    x, y = pyautogui.position()
+    return Point(int(x), int(y))
+
+
+def move_cursor_to(point: Point, duration: float = 0.0) -> None:
+    if os.name == "nt":
+        if duration > 0:
+            time.sleep(duration)
+        try:
+            import ctypes
+
+            ctypes.windll.user32.SetCursorPos(int(point.x), int(point.y))
+            return
+        except Exception:
+            pass
+
+    pyautogui.moveTo(point.x, point.y, duration=duration)
+
+
+def click_mouse(button: str = "left") -> None:
+    if os.name == "nt":
+        flags = {
+            "left": (0x0002, 0x0004),
+            "right": (0x0008, 0x0010),
+            "middle": (0x0020, 0x0040),
+        }
+        try:
+            import ctypes
+
+            down, up = flags[button]
+            ctypes.windll.user32.mouse_event(down, 0, 0, 0, 0)
+            ctypes.windll.user32.mouse_event(up, 0, 0, 0, 0)
+            return
+        except Exception:
+            pass
+
+    pyautogui.click(button=button)
+
+
+def click_at(point: Point, button: str = "left", move_duration: float = 0.0) -> None:
+    move_cursor_to(point, move_duration)
+    click_mouse(button)
 
 
 def virtual_screen_bounds() -> Box:
@@ -232,8 +297,8 @@ def command_position(args: argparse.Namespace) -> int:
     print("移动鼠标查看坐标，按 Ctrl+C 停止。", flush=True)
     try:
         while True:
-            x, y = pyautogui.position()
-            sys.stdout.write(f"\rX={x:<5} Y={y:<5}")
+            point = cursor_position()
+            sys.stdout.write(f"\rX={point.x:<5} Y={point.y:<5}")
             sys.stdout.flush()
             time.sleep(args.interval)
     except KeyboardInterrupt:
@@ -301,8 +366,7 @@ def command_watch(args: argparse.Namespace) -> int:
                 else:
                     if args.pre_click_delay > 0:
                         time.sleep(args.pre_click_delay)
-                    pyautogui.moveTo(click_point.x, click_point.y, duration=args.move_duration)
-                    pyautogui.click(button=args.button)
+                    click_at(click_point, button=args.button, move_duration=args.move_duration)
                     print_status(f"已点击 ({click_point.x},{click_point.y})")
 
                 last_click_at = time.monotonic()

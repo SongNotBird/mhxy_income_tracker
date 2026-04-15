@@ -26,7 +26,7 @@ class WatchConfig(NamedTuple):
     click_mode: str
     click_x: int
     click_y: int
-    dry_run: bool
+    click_enabled: bool
     repeat: bool
     once: bool
 
@@ -189,7 +189,7 @@ class ScreenClickerApp(tk.Tk):
         self.click_mode = tk.StringVar(value="center")
         self.click_x = tk.StringVar(value="900")
         self.click_y = tk.StringVar(value="650")
-        self.dry_run = tk.BooleanVar(value=True)
+        self.click_enabled = tk.BooleanVar(value=False)
         self.repeat = tk.BooleanVar(value=False)
         self.once = tk.BooleanVar(value=False)
         self.position_text = tk.StringVar(value="鼠标坐标：X=0 Y=0")
@@ -260,7 +260,7 @@ class ScreenClickerApp(tk.Tk):
 
         option_frame = ttk.Frame(root)
         option_frame.grid(row=4, column=0, sticky="ew", pady=(10, 0))
-        ttk.Checkbutton(option_frame, text="测试模式，不点击", variable=self.dry_run).grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(option_frame, text="启用自动点击", variable=self.click_enabled).grid(row=0, column=0, sticky="w")
         ttk.Checkbutton(option_frame, text="持续出现时重复点击", variable=self.repeat).grid(
             row=0, column=1, sticky="w", padx=(18, 0)
         )
@@ -474,7 +474,7 @@ class ScreenClickerApp(tk.Tk):
             click_mode=click_mode,
             click_x=click_x,
             click_y=click_y,
-            dry_run=self.dry_run.get(),
+            click_enabled=self.click_enabled.get(),
             repeat=self.repeat.get(),
             once=self.once.get(),
         )
@@ -563,12 +563,12 @@ class ScreenClickerApp(tk.Tk):
                     origin = region_origin(config.region)
                     top_left = Point(origin.x + match.top_left.x, origin.y + match.top_left.y)
                     self._log(f"匹配成功 score={match.score:.3f}，模板左上角=({top_left.x},{top_left.y})")
-                    if config.dry_run:
-                        self._log("测试模式：不移动鼠标、不点击")
-                    else:
+                    if config.click_enabled:
                         pyautogui.moveTo(click_point.x, click_point.y, duration=0.05)
                         pyautogui.click()
                         self._log(f"已点击 ({click_point.x},{click_point.y})")
+                    else:
+                        self._log("自动点击关闭：不移动鼠标、不点击")
                     last_click_at = time.monotonic()
                     if config.once:
                         break

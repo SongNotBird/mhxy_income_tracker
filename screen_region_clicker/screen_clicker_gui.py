@@ -8,9 +8,7 @@ import ctypes
 import os
 import threading
 import time
-import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
 from typing import Callable, NamedTuple
 
 from screen_clicker import (
@@ -29,11 +27,15 @@ from screen_clicker import (
     should_click,
 )
 
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
 import pyautogui
 
 
 class WatchConfig(NamedTuple):
     region: Box | None
+    screen_label: str
     template: Path
     threshold: float
     interval: float
@@ -51,6 +53,26 @@ def default_templates_dir() -> Path:
         base = Path(os.environ.get("APPDATA", Path.home()))
         return base / "ScreenRegionClicker" / "templates"
     return Path.home() / ".screen_region_clicker" / "templates"
+
+
+def format_monitor_label(index: int, bounds: Box) -> str:
+    return f"屏幕 {index + 1} ({bounds.width}x{bounds.height}, X={bounds.x}, Y={bounds.y})"
+
+
+def clamp_point_to_bounds(point: Point, bounds: Box) -> Point:
+    return Point(
+        min(max(point.x, bounds.x), bounds.x + bounds.width),
+        min(max(point.y, bounds.y), bounds.y + bounds.height),
+    )
+
+
+def box_within(inner: Box, outer: Box) -> bool:
+    return (
+        inner.x >= outer.x
+        and inner.y >= outer.y
+        and inner.x + inner.width <= outer.x + outer.width
+        and inner.y + inner.height <= outer.y + outer.height
+    )
 
 
 def place_overlay_window(window: tk.Toplevel, bounds: Box) -> None:
@@ -96,6 +118,7 @@ class RegionSelectionOverlay:
         parent: tk.Tk,
         on_done: Callable[[Box | None], None],
         prompt: str = "拖动选择区域，松开鼠标确认；按 Esc 取消",
+        bounds: Box | None = None,
     ) -> None:
         self.parent = parent
         self.on_done = on_done
@@ -108,19 +131,20 @@ class RegionSelectionOverlay:
         self.rect_id: int | None = None
         self.completed = False
 
-        for bounds in monitor_bounds():
+        overlay_bounds = [bounds] if bounds is not None else monitor_bounds()
+        for monitor in overlay_bounds:
             window = tk.Toplevel(parent)
             window.overrideredirect(True)
             window.attributes("-topmost", True)
             window.attributes("-alpha", 0.32)
             window.configure(bg="black")
-            place_overlay_window(window, bounds)
+            place_overlay_window(window, monitor)
 
             canvas = tk.Canvas(window, bg="black", highlightthickness=0, cursor="crosshair")
             canvas.pack(fill=tk.BOTH, expand=True)
-            draw_overlay_prompt(canvas, bounds, prompt)
+            draw_overlay_prompt(canvas, monitor, prompt)
 
-            canvas.bind("<ButtonPress-1>", lambda event, item=(window, canvas, bounds): self._start(event, item))
+            canvas.bind("<ButtonPress-1>", lambda event, item=(window, canvas, monitor): self._start(event, item))
             canvas.bind("<B1-Motion>", self._drag)
             canvas.bind("<ButtonRelease-1>", self._finish)
             window.bind("<Escape>", self._cancel)
@@ -155,7 +179,7 @@ class RegionSelectionOverlay:
     def _drag(self, _event: tk.Event) -> None:
         if self.start_canvas is None or self.rect_id is None or self.active_canvas is None or self.active_bounds is None:
             return
-        current = canvas_point(cursor_position(), self.active_bounds)
+        current = canvas_point(clamp_point_to_bounds(cursor_position(), self.active_bounds), self.active_bounds)
         self.active_canvas.coords(self.rect_id, self.start_canvas.x, self.start_canvas.y, current.x, current.y)
 
     def _finish(self, _event: tk.Event) -> None:
@@ -164,6 +188,8 @@ class RegionSelectionOverlay:
             return
 
         end_root = cursor_position()
+        if self.active_bounds is not None:
+            end_root = clamp_point_to_bounds(end_root, self.active_bounds)
         left = min(self.start_root.x, end_root.x)
         top = min(self.start_root.y, end_root.y)
         right = max(self.start_root.x, end_root.x)
@@ -200,24 +226,25 @@ class RegionSelectionOverlay:
 
 
 class PointCaptureOverlay:
-    def __init__(self, parent: tk.Tk, on_done: Callable[[Point | None], None]) -> None:
+    def __init__(self, parent: tk.Tk, on_done: Callable[[Point | None], None], bounds: Box | None = None) -> None:
         self.on_done = on_done
         self.windows: list[tk.Toplevel] = []
         self.completed = False
 
-        for bounds in monitor_bounds():
+        overlay_bounds = [bounds] if bounds is not None else monitor_bounds()
+        for monitor in overlay_bounds:
             window = tk.Toplevel(parent)
             window.overrideredirect(True)
             window.attributes("-topmost", True)
             window.attributes("-alpha", 0.22)
             window.configure(bg="black")
-            place_overlay_window(window, bounds)
+            place_overlay_window(window, monitor)
 
             canvas = tk.Canvas(window, bg="black", highlightthickness=0, cursor="crosshair")
             canvas.pack(fill=tk.BOTH, expand=True)
-            draw_overlay_prompt(canvas, bounds, "点击备用固定坐标；按 Esc 取消")
+            draw_overlay_prompt(canvas, monitor, "点击备用固定坐标；按 Esc 取消")
 
-            canvas.bind("<ButtonPress-1>", self._capture)
+            canvas.bind("<ButtonPress-1>", lambda event, item=monitor: self._capture(event, item))
             window.bind("<Escape>", self._cancel)
             self.windows.append(window)
 
@@ -227,8 +254,8 @@ class PointCaptureOverlay:
 
         self.windows[0].focus_force()
 
-    def _capture(self, _event: tk.Event) -> None:
-        self._complete(cursor_position())
+    def _capture(self, _event: tk.Event, bounds: Box) -> None:
+        self._complete(clamp_point_to_bounds(cursor_position(), bounds))
 
     def _cancel(self, _event: tk.Event | None = None) -> None:
         self._complete(None)
@@ -257,8 +284,11 @@ class ScreenClickerApp(tk.Tk):
         self.worker: threading.Thread | None = None
         self.status_queue: queue.Queue[str] = queue.Queue()
         self.active_overlay: object | None = None
+        self.monitor_choices: list[str] = []
+        self.monitor_map: dict[str, Box] = {}
 
         self.template_path = tk.StringVar()
+        self.screen_choice = tk.StringVar()
         self.region_x = tk.StringVar(value="100")
         self.region_y = tk.StringVar(value="200")
         self.region_w = tk.StringVar(value="500")
@@ -275,10 +305,39 @@ class ScreenClickerApp(tk.Tk):
         self.once = tk.BooleanVar(value=False)
         self.position_text = tk.StringVar(value="鼠标坐标：X=0 Y=0")
         self.status_text = tk.StringVar(value="未开始")
+        self.screen_combo: ttk.Combobox | None = None
+        self._load_monitor_choices()
 
         self._build_ui()
         self._schedule_position_update()
         self._drain_logs()
+
+    def _load_monitor_choices(self) -> None:
+        monitors = monitor_bounds()
+        if not monitors:
+            monitors = [Box(0, 0, 1, 1)]
+
+        self.monitor_choices = [format_monitor_label(index, bounds) for index, bounds in enumerate(monitors)]
+        self.monitor_map = dict(zip(self.monitor_choices, monitors))
+        if self.screen_choice.get() not in self.monitor_map:
+            self.screen_choice.set(self.monitor_choices[0])
+
+        if self.screen_combo is not None:
+            self.screen_combo.configure(values=self.monitor_choices)
+
+    def _refresh_monitor_choices(self) -> None:
+        self._load_monitor_choices()
+        self._log(f"已刷新屏幕列表，当前工作屏幕：{self.screen_choice.get()}")
+        self.status_text.set("已刷新屏幕列表")
+
+    def _selected_monitor(self) -> Box:
+        bounds = self.monitor_map.get(self.screen_choice.get())
+        if bounds is None:
+            self._load_monitor_choices()
+            bounds = self.monitor_map.get(self.screen_choice.get())
+        if bounds is None:
+            raise ValueError("没有检测到可用屏幕")
+        return bounds
 
     def _build_ui(self) -> None:
         root = ttk.Frame(self, padding=14)
@@ -296,20 +355,32 @@ class ScreenClickerApp(tk.Tk):
 
         region_frame = ttk.LabelFrame(root, text="搜索范围", padding=10)
         region_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        ttk.Label(region_frame, text="工作屏幕").grid(row=0, column=0, sticky="w")
+        self.screen_combo = ttk.Combobox(
+            region_frame,
+            textvariable=self.screen_choice,
+            values=self.monitor_choices,
+            state="readonly",
+            width=42,
+        )
+        self.screen_combo.grid(row=0, column=1, columnspan=5, sticky="ew", padx=(6, 10))
+        ttk.Button(region_frame, text="刷新屏幕", command=self._refresh_monitor_choices).grid(
+            row=0, column=6, sticky="w"
+        )
         ttk.Checkbutton(
             region_frame,
-            text="全屏搜索目标图片（推荐，窗口漂移也能找）",
+            text="在所选屏幕内全屏搜索目标图片（推荐，窗口漂移也能找）",
             variable=self.full_screen_search,
-        ).grid(row=0, column=0, columnspan=8, sticky="w")
+        ).grid(row=1, column=0, columnspan=8, sticky="w", pady=(10, 0))
         for index, (label, var) in enumerate(
             (("X", self.region_x), ("Y", self.region_y), ("宽", self.region_w), ("高", self.region_h))
         ):
-            ttk.Label(region_frame, text=label).grid(row=1, column=index * 2, sticky="w", pady=(10, 0))
+            ttk.Label(region_frame, text=label).grid(row=2, column=index * 2, sticky="w", pady=(10, 0))
             ttk.Entry(region_frame, textvariable=var, width=9).grid(
-                row=1, column=index * 2 + 1, padx=(4, 14), pady=(10, 0)
+                row=2, column=index * 2 + 1, padx=(4, 14), pady=(10, 0)
             )
         ttk.Button(region_frame, text="拖动限制搜索范围", command=self._select_region).grid(
-            row=2, column=0, columnspan=3, sticky="w", pady=(10, 0)
+            row=3, column=0, columnspan=3, sticky="w", pady=(10, 0)
         )
 
         settings_frame = ttk.LabelFrame(root, text="识别设置", padding=10)
@@ -397,11 +468,18 @@ class ScreenClickerApp(tk.Tk):
             messagebox.showinfo("正在监控", "请先停止监控，再重新选择区域。")
             return
 
+        try:
+            bounds = self._selected_monitor()
+        except ValueError as exc:
+            messagebox.showerror("屏幕错误", str(exc))
+            return
+
         def open_overlay() -> None:
             self.active_overlay = RegionSelectionOverlay(
                 self,
                 self._apply_selected_region,
                 prompt="拖动限制搜索范围，松开鼠标确认；按 Esc 取消",
+                bounds=bounds,
             )
 
         self._hide_for_overlay(open_overlay)
@@ -426,11 +504,18 @@ class ScreenClickerApp(tk.Tk):
             messagebox.showinfo("正在监控", "请先停止监控，再重新截取目标样式。")
             return
 
+        try:
+            bounds = self._selected_monitor()
+        except ValueError as exc:
+            messagebox.showerror("屏幕错误", str(exc))
+            return
+
         def open_overlay() -> None:
             self.active_overlay = RegionSelectionOverlay(
                 self,
                 self._save_template_region,
                 prompt="拖动框选要识别的按钮或界面样式，松开鼠标保存；按 Esc 取消",
+                bounds=bounds,
             )
 
         self._hide_for_overlay(open_overlay)
@@ -467,8 +552,14 @@ class ScreenClickerApp(tk.Tk):
             messagebox.showinfo("正在监控", "请先停止监控，再重新记录固定坐标。")
             return
 
+        try:
+            bounds = self._selected_monitor()
+        except ValueError as exc:
+            messagebox.showerror("屏幕错误", str(exc))
+            return
+
         def open_overlay() -> None:
-            self.active_overlay = PointCaptureOverlay(self, self._apply_click_point)
+            self.active_overlay = PointCaptureOverlay(self, self._apply_click_point, bounds=bounds)
 
         self._hide_for_overlay(open_overlay)
 
@@ -524,7 +615,9 @@ class ScreenClickerApp(tk.Tk):
         if not template.is_file():
             raise ValueError("请选择有效的模板图片")
 
-        region = None
+        screen_bounds = self._selected_monitor()
+        screen_label = self.screen_choice.get()
+        region = screen_bounds
         if not self.full_screen_search.get():
             region = Box(
                 int(self.region_x.get()),
@@ -534,6 +627,8 @@ class ScreenClickerApp(tk.Tk):
             )
             if region.width <= 0 or region.height <= 0:
                 raise ValueError("搜索范围宽高必须大于 0")
+            if not box_within(region, screen_bounds):
+                raise ValueError("搜索范围不在当前工作屏幕内，请重新选择工作屏幕或重新拖动限制搜索范围")
 
         threshold = float(self.threshold.get())
         interval = float(self.interval.get())
@@ -549,6 +644,7 @@ class ScreenClickerApp(tk.Tk):
 
         return WatchConfig(
             region=region,
+            screen_label=screen_label,
             template=template,
             threshold=threshold,
             interval=interval,
@@ -627,12 +723,12 @@ class ScreenClickerApp(tk.Tk):
         try:
             template = load_template(config.template)
             search_label = (
-                "全屏"
+                "未限制"
                 if config.region is None
                 else f"({config.region.x},{config.region.y},{config.region.width},{config.region.height})"
             )
             self._log(
-                f"开始搜索目标图片，范围={search_label}，"
+                f"开始搜索目标图片，工作屏幕={config.screen_label}，范围={search_label}，"
                 f"阈值={config.threshold:.2f}"
             )
             while not self.stop_event.is_set():
